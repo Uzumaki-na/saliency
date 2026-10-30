@@ -1,0 +1,8 @@
+@"
+# AI coding agent configurations
+.agents/
+.claude/
+
+# Agent configuration and lock files
+skills-lock.json
+"@ | Set-Content .gitignore
