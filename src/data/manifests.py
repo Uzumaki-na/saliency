@@ -46,7 +46,22 @@ ALL_REQUIRED_DIRS: tuple[Path, ...] = ALL_RAW_DIRS + ALL_CACHE_DIRS
 KODAK_FILENAMES: tuple[str, ...] = tuple(f"kodim{i:02d}.png" for i in range(1, 25))
 DIV2K_TRAIN_FILENAMES: tuple[str, ...] = tuple(f"{i:04d}.png" for i in range(1, 801))
 DIV2K_VAL_FILENAMES: tuple[str, ...] = tuple(f"{i:04d}.png" for i in range(801, 901))
-MIT1003_TEST_FILENAMES: tuple[str, ...] = tuple(f"mit1003_test_{i:04d}.jpg" for i in range(1, 501))
+def _load_mit1003_test_filenames() -> tuple[str, ...]:
+    manifest_path = Path(__file__).resolve().parent.parent.parent / "data" / "manifests" / "mit1003_test_split.json"
+    if manifest_path.exists():
+        try:
+            import json
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                filenames = data.get("filenames", [])
+                if filenames and len(filenames) == 500:
+                    return tuple(filenames)
+        except Exception:
+            pass
+    return tuple(f"mit1003_test_{i:04d}.jpg" for i in range(1, 501))
+
+
+MIT1003_TEST_FILENAMES: tuple[str, ...] = _load_mit1003_test_filenames()
 
 # Remote URL Templates
 KODAK_PRIMARY_BASE_URL = "http://r0k.us/graphics/kodak/kodak"
@@ -60,8 +75,8 @@ DIV2K_VAL_ARCHIVE_FALLBACK = "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_val
 DIV2K_TRAIN_ARCHIVE_MD5 = "bd710d0d82d92178082697a6fa347cd3"
 DIV2K_VAL_ARCHIVE_MD5 = "9fcdda83005a5e599c4ab75282198b88"
 
-MIT1003_STIMULI_ARCHIVE_URL = "http://people.csail.mit.edu/tjudd/WherePeopleLook/DATA/ALLSTIMULI.zip"
-MIT1003_FIXATIONS_ARCHIVE_URL = "http://people.csail.mit.edu/tjudd/WherePeopleLook/DATA/ALLFIXATIONMAPS.zip"
+MIT1003_STIMULI_ARCHIVE_URL = "http://people.csail.mit.edu/tjudd/WherePeopleLook/ALLSTIMULI.zip"
+MIT1003_FIXATIONS_ARCHIVE_URL = "http://people.csail.mit.edu/tjudd/WherePeopleLook/ALLFIXATIONMAPS.zip"
 
 # Official 24 Kodak PhotoCD MD5 Checksums
 KODAK_CHECKSUMS: dict[str, str] = {

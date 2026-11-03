@@ -242,6 +242,7 @@ def download_archive_dataset(
 
     print(f"[EXTRACT] Unpacking {archive_dest} -> {target_dir}...")
     target_dir.mkdir(parents=True, exist_ok=True)
+    target_filenames_set = set(manifest.filenames) if manifest.filenames else None
     try:
         with zipfile.ZipFile(archive_dest, "r") as zip_ref:
             for member in zip_ref.infolist():
@@ -249,6 +250,8 @@ def download_archive_dataset(
                     continue
                 fname = Path(member.filename).name
                 if fname.startswith(".") or member.filename.startswith("__MACOSX"):
+                    continue
+                if manifest.name == "mit1003_test" and target_filenames_set and fname not in target_filenames_set:
                     continue
                 dest_file = target_dir / fname
                 with zip_ref.open(member) as source, open(dest_file, "wb") as target:

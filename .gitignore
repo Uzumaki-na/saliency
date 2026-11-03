@@ -12,7 +12,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 /checkpoints/
-/data/
+/data/raw/
+/data/saliency_cache/
+/data/downloads/
+/data/**/*.zip
+!/data/manifests/
+!/data/manifests/**
 /outputs/
 /mlruns/
 .dvc/cache
