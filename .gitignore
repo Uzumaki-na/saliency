@@ -11,8 +11,8 @@ skills-lock.json
 __pycache__/
 *.py[cod]
 *$py.class
-checkpoints/
-data/
-outputs/
-mlruns/
+/checkpoints/
+/data/
+/outputs/
+/mlruns/
 .dvc/cache
