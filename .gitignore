@@ -1,8 +1,18 @@
-@"
 # AI coding agent configurations
 .agents/
 .claude/
+_bmad/
+_bmad-output/
 
 # Agent configuration and lock files
 skills-lock.json
-"@ | Set-Content .gitignore
+
+# Python & ML artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+checkpoints/
+data/
+outputs/
+mlruns/
+.dvc/cache
