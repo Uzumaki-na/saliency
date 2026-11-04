@@ -31,6 +31,14 @@ from src.data.manifests import (
     get_manifests_for_dataset,
     resolve_target_dir,
 )
+from src.data.padding import (
+    PadBounds,
+    compute_padding_offsets,
+    compute_valid_latent_mask,
+    pad_image_and_saliency_centered,
+    pad_symmetric_centered,
+    unpad_centered,
+)
 from src.data.saliency import (
     FastSal,
     MultiscaleDecoder,
@@ -77,10 +85,13 @@ __all__ = [
     "DatasetVerificationReport",
     "FastSal",
     "MultiscaleDecoder",
+    "PadBounds",
     "SaliencyImageDataset",
     "SynchronizedTransforms",
     "VerificationResult",
     "compute_file_md5",
+    "compute_padding_offsets",
+    "compute_valid_latent_mask",
     "create_saliency_dataloader",
     "extract_and_cache_saliency",
     "format_failure_details",
@@ -89,7 +100,10 @@ __all__ = [
     "get_manifests_for_dataset",
     "log_verification_failure_to_stderr",
     "normalize_saliency_percentile",
+    "pad_image_and_saliency_centered",
+    "pad_symmetric_centered",
     "resolve_target_dir",
+    "unpad_centered",
     "verify_dataset",
     "verify_datasets",
 ]
