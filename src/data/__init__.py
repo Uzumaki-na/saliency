@@ -1,5 +1,10 @@
-"""Data package exposing directory paths, dataset manifests, integrity verifiers, and saliency extraction."""
+"""Data package exposing directory paths, dataset manifests, integrity verifiers, saliency extraction, and PyTorch datasets."""
 
+from src.data.dataset import (
+    SaliencyImageDataset,
+    SynchronizedTransforms,
+    create_saliency_dataloader,
+)
 from src.data.manifests import (
     ALL_CACHE_DIRS,
     ALL_MANIFESTS,
@@ -72,8 +77,11 @@ __all__ = [
     "DatasetVerificationReport",
     "FastSal",
     "MultiscaleDecoder",
+    "SaliencyImageDataset",
+    "SynchronizedTransforms",
     "VerificationResult",
     "compute_file_md5",
+    "create_saliency_dataloader",
     "extract_and_cache_saliency",
     "format_failure_details",
     "format_verification_summary",
