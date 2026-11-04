@@ -68,7 +68,8 @@ def test_synchronized_crop_and_flip_landmark_alignment() -> None:
 
         # The landmark must either be present in both x and S, or cropped out of both
         assert len(x_marker_coords) == len(s_marker_coords), (
-            f"Seed {seed}: Inconsistent landmark presence! x count={len(x_marker_coords)}, S count={len(s_marker_coords)}"
+            f"Seed {seed}: Inconsistent landmark presence! "
+            f"x count={len(x_marker_coords)}, S count={len(s_marker_coords)}"
         )
 
         if len(x_marker_coords) > 0:

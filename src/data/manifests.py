@@ -10,20 +10,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Base Directory Paths
-RAW_DATA_DIR = Path("data/raw")
-SALIENCY_CACHE_DIR = Path("data/saliency_cache")
+RAW_DATA_DIR: Path = Path("data/raw")
+SALIENCY_CACHE_DIR: Path = Path("data/saliency_cache")
 
 # Raw Dataset Target Directories
-KODAK_RAW_DIR = RAW_DATA_DIR / "kodak"
-DIV2K_TRAIN_RAW_DIR = RAW_DATA_DIR / "div2k" / "train"
-DIV2K_VAL_RAW_DIR = RAW_DATA_DIR / "div2k" / "val"
-MIT1003_TEST_RAW_DIR = RAW_DATA_DIR / "mit1003" / "test"
+KODAK_RAW_DIR: Path = RAW_DATA_DIR / "kodak"
+DIV2K_TRAIN_RAW_DIR: Path = RAW_DATA_DIR / "div2k" / "train"
+DIV2K_VAL_RAW_DIR: Path = RAW_DATA_DIR / "div2k" / "val"
+MIT1003_TEST_RAW_DIR: Path = RAW_DATA_DIR / "mit1003" / "test"
 
 # Saliency Cache Directories
-KODAK_CACHE_DIR = SALIENCY_CACHE_DIR / "kodak"
-DIV2K_TRAIN_CACHE_DIR = SALIENCY_CACHE_DIR / "div2k" / "train"
-DIV2K_VAL_CACHE_DIR = SALIENCY_CACHE_DIR / "div2k" / "val"
-MIT1003_TEST_CACHE_DIR = SALIENCY_CACHE_DIR / "mit1003" / "test"
+KODAK_CACHE_DIR: Path = SALIENCY_CACHE_DIR / "kodak"
+DIV2K_TRAIN_CACHE_DIR: Path = SALIENCY_CACHE_DIR / "div2k" / "train"
+DIV2K_VAL_CACHE_DIR: Path = SALIENCY_CACHE_DIR / "div2k" / "val"
+MIT1003_TEST_CACHE_DIR: Path = SALIENCY_CACHE_DIR / "mit1003" / "test"
 
 # Directory Aggregations for Scaffolding
 ALL_RAW_DIRS: tuple[Path, ...] = (
@@ -64,19 +64,19 @@ def _load_mit1003_test_filenames() -> tuple[str, ...]:
 MIT1003_TEST_FILENAMES: tuple[str, ...] = _load_mit1003_test_filenames()
 
 # Remote URL Templates
-KODAK_PRIMARY_BASE_URL = "http://r0k.us/graphics/kodak/kodak"
-KODAK_FALLBACK_BASE_URL = "https://raw.githubusercontent.com/lemire/kodakimagecollection/master"
+KODAK_PRIMARY_BASE_URL: str = "http://r0k.us/graphics/kodak/kodak"
+KODAK_FALLBACK_BASE_URL: str = "https://raw.githubusercontent.com/lemire/kodakimagecollection/master"
 
-DIV2K_TRAIN_ARCHIVE_URL = "http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip"
-DIV2K_TRAIN_ARCHIVE_FALLBACK = "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip"
-DIV2K_VAL_ARCHIVE_URL = "http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_HR.zip"
-DIV2K_VAL_ARCHIVE_FALLBACK = "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_HR.zip"
+DIV2K_TRAIN_ARCHIVE_URL: str = "http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip"
+DIV2K_TRAIN_ARCHIVE_FALLBACK: str = "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip"
+DIV2K_VAL_ARCHIVE_URL: str = "http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_HR.zip"
+DIV2K_VAL_ARCHIVE_FALLBACK: str = "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_HR.zip"
 
-DIV2K_TRAIN_ARCHIVE_MD5 = "bd710d0d82d92178082697a6fa347cd3"
-DIV2K_VAL_ARCHIVE_MD5 = "9fcdda83005a5e599c4ab75282198b88"
+DIV2K_TRAIN_ARCHIVE_MD5: str = "bd710d0d82d92178082697a6fa347cd3"
+DIV2K_VAL_ARCHIVE_MD5: str = "9fcdda83005a5e599c4ab75282198b88"
 
-MIT1003_STIMULI_ARCHIVE_URL = "http://people.csail.mit.edu/tjudd/WherePeopleLook/ALLSTIMULI.zip"
-MIT1003_FIXATIONS_ARCHIVE_URL = "http://people.csail.mit.edu/tjudd/WherePeopleLook/ALLFIXATIONMAPS.zip"
+MIT1003_STIMULI_ARCHIVE_URL: str = "http://people.csail.mit.edu/tjudd/WherePeopleLook/ALLSTIMULI.zip"
+MIT1003_FIXATIONS_ARCHIVE_URL: str = "http://people.csail.mit.edu/tjudd/WherePeopleLook/ALLFIXATIONMAPS.zip"
 
 # Official 24 Kodak PhotoCD MD5 Checksums
 KODAK_CHECKSUMS: dict[str, str] = {
@@ -137,6 +137,7 @@ class DatasetManifest:
 
     @property
     def expected_count(self) -> int:
+        """Total number of expected files in this dataset split."""
         return len(self.filenames)
 
 

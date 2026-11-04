@@ -67,18 +67,22 @@ class DatasetVerificationReport:
 
     @property
     def valid_count(self) -> int:
+        """Total count of verified valid files."""
         return sum(1 for r in self.results if r.status == "VALID")
 
     @property
     def missing_count(self) -> int:
+        """Total count of missing files."""
         return sum(1 for r in self.results if r.status == "MISSING")
 
     @property
     def corrupted_count(self) -> int:
+        """Total count of corrupted or hash-mismatched files."""
         return sum(1 for r in self.results if r.status == "CORRUPTED")
 
     @property
     def is_valid(self) -> bool:
+        """Return True if all expected files are present, valid, and uncorrupted."""
         return (
             self.missing_count == 0
             and self.corrupted_count == 0
@@ -87,10 +91,12 @@ class DatasetVerificationReport:
 
     @property
     def missing_files(self) -> list[str]:
+        """List of filenames detected as missing."""
         return [r.filename for r in self.results if r.status == "MISSING"]
 
     @property
     def corrupted_files(self) -> list[VerificationResult]:
+        """List of verification results for files detected as corrupted."""
         return [r for r in self.results if r.status == "CORRUPTED"]
 
 

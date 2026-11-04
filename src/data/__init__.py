@@ -1,4 +1,6 @@
-"""Data package exposing directory paths, dataset manifests, integrity verifiers, saliency extraction, and PyTorch datasets."""
+"""Data package exposing directory paths, dataset manifests, integrity verifiers,
+saliency extraction, and PyTorch datasets.
+"""
 
 from src.data.dataset import (
     SaliencyImageDataset,

@@ -27,15 +27,15 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.data.manifests import (
+from src.data.manifests import (  # noqa: E402
     ALL_REQUIRED_DIRS,
     DATASET_REGISTRY,
     DatasetManifest,
     get_manifests_for_dataset,
     resolve_target_dir,
 )
-from src.data.saliency import extract_and_cache_saliency
-from src.data.verifier import (
+from src.data.saliency import extract_and_cache_saliency  # noqa: E402
+from src.data.verifier import (  # noqa: E402
     compute_file_md5,
     format_verification_summary,
     log_verification_failure_to_stderr,
@@ -147,7 +147,8 @@ def download_kodak(manifest: DatasetManifest, base_dir: Path | None = None) -> b
                         continue
                     else:
                         print(
-                            f"  [CORRUPTED] {fname} checksum mismatch (expected {expected_md5}, got {actual_md5}), re-downloading...",
+                            f"  [CORRUPTED] {fname} checksum mismatch (expected {expected_md5}, "
+                            f"got {actual_md5}), re-downloading...",
                             file=sys.stderr,
                         )
                 except OSError:
@@ -212,7 +213,8 @@ def download_archive_dataset(
                     need_download = False
                 else:
                     print(
-                        f"[CORRUPTED ARCHIVE] Existing {archive_dest} hash mismatch (expected {manifest.archive_md5}, got {existing_md5}), re-downloading...",
+                        f"[CORRUPTED ARCHIVE] Existing {archive_dest} hash mismatch "
+                        f"(expected {manifest.archive_md5}, got {existing_md5}), re-downloading...",
                         file=sys.stderr,
                     )
             except OSError:
@@ -237,7 +239,8 @@ def download_archive_dataset(
             computed_md5 = compute_file_md5(archive_dest)
             if computed_md5.lower() != manifest.archive_md5.lower():
                 print(
-                    f"[ERROR] Corrupted archive {archive_dest}: expected MD5 {manifest.archive_md5}, got {computed_md5}",
+                    f"[ERROR] Corrupted archive {archive_dest}: expected MD5 {manifest.archive_md5}, "
+                    f"got {computed_md5}",
                     file=sys.stderr,
                 )
                 return False

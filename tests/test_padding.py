@@ -26,7 +26,6 @@ from src.data.padding import (
     unpad_centered,
 )
 
-
 # ==============================================================================
 # 1. Benchmark Dimensions: Kodak & MIT1003
 # ==============================================================================
@@ -232,7 +231,7 @@ def test_input_tensor_not_mutated() -> None:
     x = torch.randn(3, 50, 50, dtype=torch.float32)
     x_copy = x.clone()
 
-    x_pad, bounds = pad_symmetric_centered(x, factor=64)
+    x_pad, _ = pad_symmetric_centered(x, factor=64)
     assert torch.equal(x, x_copy)
 
     # Mutating padded tensor does not affect original
@@ -493,8 +492,8 @@ def test_invalid_parameters_raise_value_error() -> None:
         unpad_centered(torch.randn(64, 64), (40, 40, 0, 0))
 
     # Non-tensor input
-    with pytest.raises(TypeError, match="must be a torch.Tensor"):
+    with pytest.raises(TypeError, match=r"must be a torch\.Tensor"):
         pad_symmetric_centered([1, 2, 3])  # type: ignore
 
-    with pytest.raises(TypeError, match="must be a torch.Tensor"):
+    with pytest.raises(TypeError, match=r"must be a torch\.Tensor"):
         unpad_centered([1, 2, 3], (0, 0, 0, 0))  # type: ignore

@@ -468,6 +468,7 @@ class SaliencyImageDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         return img_path, sal_path
 
     def __len__(self) -> int:
+        """Total number of image-saliency pairs in the dataset."""
         return len(self.filenames)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -545,6 +546,18 @@ def create_saliency_dataloader(
 
     When split != 'train' (or is_train=False), defaults to batch_size=1 and shuffle=False
     to handle mixed-resolution or mixed-aspect-ratio evaluation datasets without collation crashes.
+
+    Args:
+        dataset: SaliencyImageDataset or compatible PyTorch Dataset instance.
+        batch_size: Batch size override (defaults to 4 for training, 1 for evaluation).
+        shuffle: Whether to shuffle data (defaults to True for training, False for evaluation).
+        num_workers: Subprocess worker count for data loading (default: 0).
+        pin_memory: Whether to copy tensors into CUDA pinned memory before returning (default: False).
+        generator: Optional PyTorch RNG generator for batch sampling determinism.
+        **kwargs: Additional keyword arguments forwarded to torch.utils.data.DataLoader.
+
+    Returns:
+        Configured PyTorch DataLoader instance.
     """
     is_train = True
     if hasattr(dataset, "split"):

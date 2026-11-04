@@ -140,6 +140,15 @@ class MultiscaleDecoder(nn.Module):
         features: Sequence[torch.Tensor],
         target_size: tuple[int, int],
     ) -> torch.Tensor:
+        """Fuse multiscale feature representations and upsample to target resolution.
+
+        Args:
+            features: Sequence of feature tensors (f1, f2, f3, f4) from MobileNetV2 stages.
+            target_size: Desired spatial output dimensions (H, W).
+
+        Returns:
+            Continuous saliency map tensor of shape (B, 1, H, W).
+        """
         f1, f2, f3, f4 = features
 
         p4 = self.conv4(f4)
@@ -334,6 +343,14 @@ class FastSal(nn.Module):
         """Extract and normalize saliency to uint8 [0, 255] NumPy array.
 
         For batched inputs, normalizes each batch item independently.
+
+        Args:
+            x: Input RGB image as PIL Image, NumPy array, or PyTorch Tensor.
+            p_low: Lower percentile for dynamic range clipping (default 1.0).
+            p_high: Upper percentile for dynamic range clipping (default 99.0).
+
+        Returns:
+            Normalized uint8 NumPy array in [0, 255] matching spatial resolution of input.
         """
         raw = self.forward(x)
         if isinstance(raw, torch.Tensor):
