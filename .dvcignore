@@ -1,0 +1,25 @@
+# Add patterns of files dvc should ignore, which could improve
+# the performance. Learn more at
+# https://dvc.org/doc/user-guide/dvcignore
+
+# Environment and IDE
+.venv/
+.idea/
+.vscode/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Temporary and local downloads/archives
+/data/raw/
+/data/saliency_cache/
+/data/downloads/
+/data/**/*.zip

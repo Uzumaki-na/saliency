@@ -1,0 +1,9 @@
+stages:
+  prepare_data:
+    cmd: python scripts/prepare_data.py --setup-dirs
+    deps:
+      - data/manifests/mit1003_test_split.json
+      - scripts/prepare_data.py
+      - src/data/manifests.py
+      - src/data/verifier.py
+      - src/data/saliency.py

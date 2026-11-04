@@ -1,0 +1,25 @@
+schema: '2.0'
+stages:
+  prepare_data:
+    cmd: python scripts/prepare_data.py --setup-dirs
+    deps:
+    - path: data/manifests/mit1003_test_split.json
+      hash: md5
+      md5: 8e7b3806768151632cb29fce11231bf7
+      size: 42820
+    - path: scripts/prepare_data.py
+      hash: md5
+      md5: 41b28710e3e9751c748030fb77532b65
+      size: 17153
+    - path: src/data/manifests.py
+      hash: md5
+      md5: b3aed2bb3af50e4653264531190c48cb
+      size: 8758
+    - path: src/data/saliency.py
+      hash: md5
+      md5: 05ededc2081e08f5a2204105934374a2
+      size: 19693
+    - path: src/data/verifier.py
+      hash: md5
+      md5: d4982e8d13a249617c1005a5a526c0bb
+      size: 9555

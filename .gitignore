@@ -8,6 +8,8 @@ _bmad-output/
 skills-lock.json
 
 # Python & ML artifacts
+.venv/
+*.egg-info/
 __pycache__/
 *.py[cod]
 *$py.class
