@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Dataset acquisition, scaffolding, and integrity verification script.
+"""Dataset acquisition, scaffolding, integrity verification, and saliency extraction script.
 
 Supports:
   --setup-dirs: Scaffold the standard data directory hierarchy.
   --verify-data: Verify raw image integrity and reference checksums.
   --download-only: Ingest public benchmark datasets (Kodak, DIV2K, MIT1003).
-  --extract-saliency: Stub informing user that offline saliency extraction is staged for Story 1.2.
+  --extract-saliency: Extract visual saliency maps offline and cache to disk.
+  --sample N: Subsample count for fast verification and incremental extraction.
+  --device: Execution device for FastSal ('cuda', 'cpu', etc.).
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ from src.data.manifests import (
     get_manifests_for_dataset,
     resolve_target_dir,
 )
+from src.data.saliency import extract_and_cache_saliency
 from src.data.verifier import (
     compute_file_md5,
     format_verification_summary,
@@ -323,7 +326,19 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--extract-saliency",
         action="store_true",
-        help="Extract visual saliency maps offline (staged for Story 1.2).",
+        help="Extract visual saliency maps offline and cache to disk.",
+    )
+    parser.add_argument(
+        "--sample",
+        type=int,
+        default=None,
+        help="Subsample count limiting images processed per dataset split (for testing/fast verification).",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Target hardware device for FastSal execution ('cuda', 'cpu', etc.). Defaults to auto-selection.",
     )
     parser.add_argument(
         "--dataset",
@@ -350,21 +365,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Main execution entrypoint."""
     args = parse_args(argv)
 
-    # 1. Scaffolding action
-    if args.setup_dirs:
-        setup_directories(base_dir=args.data_dir, quiet=args.quiet)
-        if not (args.verify_data or args.download_only or args.extract_saliency):
-            return 0
-
-    # 2. Saliency extraction flag stub (Story 1.2 staging)
-    if args.extract_saliency:
-        print(
-            "[INFO] Saliency extraction engine (FastSal offline pre-extraction & percentile caching) "
-            "is staged for Story 1.2. Directory layout and acquisition scripts are active."
-        )
-        if not (args.verify_data or args.download_only):
-            return 0
-
     # Determine target manifests
     try:
         manifests = get_manifests_for_dataset(args.dataset)
@@ -372,14 +372,66 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"[ERROR] {e}", file=sys.stderr)
         return 1
 
-    # 3. Download action
+    # 1. Scaffolding action
+    if args.setup_dirs:
+        setup_directories(base_dir=args.data_dir, quiet=args.quiet)
+        if not (args.verify_data or args.download_only or args.extract_saliency):
+            return 0
+
+    # 2. Download action (runs before extraction if both are requested)
     if args.download_only:
         setup_directories(base_dir=args.data_dir, quiet=True)
         download_ok = run_download(manifests, base_dir=args.data_dir)
         if not download_ok:
             return 1
-        # Automatically verify downloaded dataset
-        return run_verification(manifests, base_dir=args.data_dir)
+        verify_code = run_verification(manifests, base_dir=args.data_dir)
+        if verify_code != 0:
+            return verify_code
+        if not (args.verify_data or args.extract_saliency):
+            return 0
+
+    # 3. Saliency extraction action
+    if args.extract_saliency:
+        setup_directories(base_dir=args.data_dir, quiet=True)
+
+        # Validate that raw image directories exist and are non-empty
+        missing_source_manifests: list[str] = []
+        for manifest in manifests:
+            raw_dir = resolve_target_dir(manifest.target_dir, args.data_dir)
+            if not raw_dir.exists() or not any(raw_dir.iterdir()):
+                missing_source_manifests.append(manifest.name)
+
+        if missing_source_manifests:
+            print(
+                f"[ERROR] Raw source files missing for dataset(s): {', '.join(missing_source_manifests)}.\n"
+                f"Please download raw data first using --download-only.",
+                file=sys.stderr,
+            )
+            return 1
+
+        if not args.quiet:
+            print("[INFO] Saliency extraction engine (FastSal offline pre-extraction & percentile caching) active.")
+        try:
+            results = extract_and_cache_saliency(
+                dataset_name=args.dataset,
+                base_dir=args.data_dir,
+                sample=args.sample,
+                device=args.device,
+                quiet=args.quiet,
+            )
+            total_cached = sum(results.values())
+            if total_cached == 0:
+                print("[ERROR] No saliency maps were cached. Source files missing or empty.", file=sys.stderr)
+                return 1
+
+            if not args.quiet:
+                print(f"\n[SUCCESS] Offline saliency extraction complete: {total_cached} total maps cached.")
+        except (RuntimeError, OSError, ValueError, KeyError) as e:
+            print(f"[ERROR] Saliency extraction failed: {e}", file=sys.stderr)
+            return 1
+
+        if not args.verify_data:
+            return 0
 
     # 4. Verification action
     if args.verify_data:

@@ -8,7 +8,12 @@ version = "0.1.0"
 description = "Saliency-Aware Learned Neural Compression"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "torch>=2.4.0",
+    "torchvision>=0.15.0",
+    "pillow>=9.0.0",
+    "numpy>=1.24.0",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

@@ -56,8 +56,8 @@ def _load_mit1003_test_filenames() -> tuple[str, ...]:
                 filenames = data.get("filenames", [])
                 if filenames and len(filenames) == 500:
                     return tuple(filenames)
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError, ValueError):
+            return tuple(f"mit1003_test_{i:04d}.jpg" for i in range(1, 501))
     return tuple(f"mit1003_test_{i:04d}.jpg" for i in range(1, 501))
 
 

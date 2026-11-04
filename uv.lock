@@ -1,0 +1,8 @@
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[[package]]
+name = "saliency-aware-neural-compression"
+version = "0.1.0"
+source = { editable = "." }

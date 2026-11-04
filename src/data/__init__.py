@@ -1,4 +1,4 @@
-"""Data package exposing directory paths, dataset manifests, and integrity verifiers."""
+"""Data package exposing directory paths, dataset manifests, integrity verifiers, and saliency extraction."""
 
 from src.data.manifests import (
     ALL_CACHE_DIRS,
@@ -25,6 +25,13 @@ from src.data.manifests import (
     DatasetManifest,
     get_manifests_for_dataset,
     resolve_target_dir,
+)
+from src.data.saliency import (
+    FastSal,
+    MultiscaleDecoder,
+    extract_and_cache_saliency,
+    get_default_device,
+    normalize_saliency_percentile,
 )
 from src.data.verifier import (
     CHUNK_SIZE,
@@ -63,12 +70,17 @@ __all__ = [
     "SALIENCY_CACHE_DIR",
     "DatasetManifest",
     "DatasetVerificationReport",
+    "FastSal",
+    "MultiscaleDecoder",
     "VerificationResult",
     "compute_file_md5",
+    "extract_and_cache_saliency",
     "format_failure_details",
     "format_verification_summary",
+    "get_default_device",
     "get_manifests_for_dataset",
     "log_verification_failure_to_stderr",
+    "normalize_saliency_percentile",
     "resolve_target_dir",
     "verify_dataset",
     "verify_datasets",
