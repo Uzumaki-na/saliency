@@ -48,9 +48,7 @@ def _normalize_frequencies(
     """
     num_symbols = probs.numel()
     if num_symbols > total_freq:
-        raise ValueError(
-            f"Alphabet size ({num_symbols}) cannot exceed total frequency budget ({total_freq})"
-        )
+        raise ValueError(f"Alphabet size ({num_symbols}) cannot exceed total frequency budget ({total_freq})")
 
     # Initial rounding
     probs_clamped = torch.clamp(probs, min=1e-12)

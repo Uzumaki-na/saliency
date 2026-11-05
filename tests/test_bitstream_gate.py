@@ -58,7 +58,7 @@ def shared_checkpoint_path(
 def compute_psnr(x1: torch.Tensor, x2: torch.Tensor) -> float:
     r"""Computes Peak Signal-to-Noise Ratio (dB) between two image tensors in [0, 1]."""
     diff = (x1 - x2).float()
-    mse = torch.mean(diff ** 2).item()
+    mse = torch.mean(diff**2).item()
     if mse <= 1e-12:
         return 100.0
     return float(10.0 * np.log10(1.0 / mse))
@@ -120,15 +120,11 @@ class TestKodakBitstreamGate:
         # 3. Decode hyper-latents and derive decoder scale indexes
         h_z = container.orig_height // 64
         w_z = container.orig_width // 64
-        q_z_dec = decode_hyper_latents(
-            container.z_bitstream, (1, 128, h_z, w_z), model.entropy_bottleneck
-        )
+        q_z_dec = decode_hyper_latents(container.z_bitstream, (1, 128, h_z, w_z), model.entropy_bottleneck)
         _, scale_indexes_dec = cpu_engine.forward(q_z_dec)
 
         # 4. Decode main latents
-        q_y_dec = decode_latents(
-            container.y_bitstream, scale_indexes_dec, model.gaussian_conditional
-        )
+        q_y_dec = decode_latents(container.y_bitstream, scale_indexes_dec, model.gaussian_conditional)
 
         # 5. Full image decode targeting device to verify exact reconstruction
         x_dec = decode_image(container, model, device=device).cpu()
@@ -270,9 +266,7 @@ class TestIsolatedProcessGate:
             "--device",
             "cpu",
         ]
-        res_default = subprocess.run(
-            decode_cmd_default, capture_output=True, text=True, env=env_default, check=True
-        )
+        res_default = subprocess.run(decode_cmd_default, capture_output=True, text=True, env=env_default, check=True)
         assert "Decompressed" in res_default.stdout
         assert img_out_default.is_file()
 
@@ -292,9 +286,7 @@ class TestIsolatedProcessGate:
             "--device",
             "cpu",
         ]
-        res_avx2 = subprocess.run(
-            decode_cmd_avx2, capture_output=True, text=True, env=env_avx2, check=True
-        )
+        res_avx2 = subprocess.run(decode_cmd_avx2, capture_output=True, text=True, env=env_avx2, check=True)
         assert "Decompressed" in res_avx2.stdout
         assert img_out_avx2.is_file()
 

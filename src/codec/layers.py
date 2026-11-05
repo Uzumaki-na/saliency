@@ -126,9 +126,7 @@ class GDN(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.dim() != 4:
-            raise ValueError(
-                f"Expected 4D input tensor (B, C, H, W), got {x.dim()}D tensor of shape {tuple(x.shape)}"
-            )
+            raise ValueError(f"Expected 4D input tensor (B, C, H, W), got {x.dim()}D tensor of shape {tuple(x.shape)}")
         if x.shape[1] != self.in_channels:
             raise ValueError(f"Channel dimension mismatch: expected {self.in_channels}, got {x.shape[1]}")
 

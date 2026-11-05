@@ -40,5 +40,3 @@ __all__ = [
     "encode_hyper_latents",
     "encode_latents",
 ]
-
-

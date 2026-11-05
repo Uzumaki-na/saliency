@@ -65,9 +65,7 @@ class ConstrictionRAnsCoder:
         idx_flat = indexes.astype(np.int32).reshape(-1)
 
         if len(sym_flat) != len(idx_flat):
-            raise ValueError(
-                f"Symbols length ({len(sym_flat)}) does not match indexes length ({len(idx_flat)})"
-            )
+            raise ValueError(f"Symbols length ({len(sym_flat)}) does not match indexes length ({len(idx_flat)})")
 
         if len(sym_flat) == 0:
             return b""
@@ -80,9 +78,7 @@ class ConstrictionRAnsCoder:
             sym_idx = int(s - off)
             num_syms = int(cdf_lengths[k] - 1)
             if sym_idx < 0 or sym_idx >= num_syms:
-                raise ValueError(
-                    f"Symbol {s} out of support range [{off}, {off + num_syms - 1}] for distribution {k}"
-                )
+                raise ValueError(f"Symbol {s} out of support range [{off}, {off + num_syms - 1}] for distribution {k}")
             coder.encode_reverse(np.array([sym_idx], dtype=np.int32), models[k])
 
         compressed = coder.get_compressed()
@@ -145,9 +141,7 @@ class PurePythonRAnsCoder:
         idx_flat = indexes.astype(np.int32).reshape(-1)
 
         if len(sym_flat) != len(idx_flat):
-            raise ValueError(
-                f"Symbols length ({len(sym_flat)}) does not match indexes length ({len(idx_flat)})"
-            )
+            raise ValueError(f"Symbols length ({len(sym_flat)}) does not match indexes length ({len(idx_flat)})")
 
         if len(sym_flat) == 0:
             return b""
@@ -161,9 +155,7 @@ class PurePythonRAnsCoder:
             sym_idx = int(s - off)
             num_syms = int(cdf_lengths[k] - 1)
             if sym_idx < 0 or sym_idx >= num_syms:
-                raise ValueError(
-                    f"Symbol {s} out of support range [{off}, {off + num_syms - 1}] for distribution {k}"
-                )
+                raise ValueError(f"Symbol {s} out of support range [{off}, {off + num_syms - 1}] for distribution {k}")
 
             cdf_row = cdfs[k]
             start = int(cdf_row[sym_idx])
@@ -319,27 +311,14 @@ def encode_hyper_latents(
     if q_z.dim() == 4:
         c = q_z.shape[1]
         indices = (
-            torch.arange(c, dtype=torch.int32, device="cpu")
-            .unsqueeze(0)
-            .unsqueeze(-1)
-            .unsqueeze(-1)
-            .expand_as(q_z)
+            torch.arange(c, dtype=torch.int32, device="cpu").unsqueeze(0).unsqueeze(-1).unsqueeze(-1).expand_as(q_z)
         )
     elif q_z.dim() == 3:
         c = q_z.shape[0]
-        indices = (
-            torch.arange(c, dtype=torch.int32, device="cpu")
-            .unsqueeze(-1)
-            .unsqueeze(-1)
-            .expand_as(q_z)
-        )
+        indices = torch.arange(c, dtype=torch.int32, device="cpu").unsqueeze(-1).unsqueeze(-1).expand_as(q_z)
     elif q_z.dim() == 2:
         c = q_z.shape[0]
-        indices = (
-            torch.arange(c, dtype=torch.int32, device="cpu")
-            .unsqueeze(-1)
-            .expand_as(q_z)
-        )
+        indices = torch.arange(c, dtype=torch.int32, device="cpu").unsqueeze(-1).expand_as(q_z)
     else:
         c = q_z.shape[0]
         indices = torch.arange(c, dtype=torch.int32, device="cpu").expand_as(q_z)
@@ -369,27 +348,14 @@ def decode_hyper_latents(
     if len(shape) == 4:
         c = shape[1]
         indices = (
-            torch.arange(c, dtype=torch.int32, device="cpu")
-            .unsqueeze(0)
-            .unsqueeze(-1)
-            .unsqueeze(-1)
-            .expand_as(dummy)
+            torch.arange(c, dtype=torch.int32, device="cpu").unsqueeze(0).unsqueeze(-1).unsqueeze(-1).expand_as(dummy)
         )
     elif len(shape) == 3:
         c = shape[0]
-        indices = (
-            torch.arange(c, dtype=torch.int32, device="cpu")
-            .unsqueeze(-1)
-            .unsqueeze(-1)
-            .expand_as(dummy)
-        )
+        indices = torch.arange(c, dtype=torch.int32, device="cpu").unsqueeze(-1).unsqueeze(-1).expand_as(dummy)
     elif len(shape) == 2:
         c = shape[0]
-        indices = (
-            torch.arange(c, dtype=torch.int32, device="cpu")
-            .unsqueeze(-1)
-            .expand_as(dummy)
-        )
+        indices = torch.arange(c, dtype=torch.int32, device="cpu").unsqueeze(-1).expand_as(dummy)
     else:
         c = shape[0]
         indices = torch.arange(c, dtype=torch.int32, device="cpu").expand_as(dummy)

@@ -25,18 +25,10 @@ from src.codec.model_a import ModelA  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Decompress a .sanc binary container file into a reconstructed image."
-    )
-    parser.add_argument(
-        "-i", "--input", type=str, required=True, help="Path to input .sanc bitstream file."
-    )
-    parser.add_argument(
-        "-o", "--output", type=str, required=True, help="Path to output image file (PNG, JPEG, etc.)."
-    )
-    parser.add_argument(
-        "-c", "--checkpoint", type=str, default=None, help="Path to trained ModelA checkpoint (.pt)."
-    )
+    parser = argparse.ArgumentParser(description="Decompress a .sanc binary container file into a reconstructed image.")
+    parser.add_argument("-i", "--input", type=str, required=True, help="Path to input .sanc bitstream file.")
+    parser.add_argument("-o", "--output", type=str, required=True, help="Path to output image file (PNG, JPEG, etc.).")
+    parser.add_argument("-c", "--checkpoint", type=str, default=None, help="Path to trained ModelA checkpoint (.pt).")
     parser.add_argument(
         "--device",
         type=str,

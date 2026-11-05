@@ -26,15 +26,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Compress an image file into a .sanc binary container using learned image compression."
     )
-    parser.add_argument(
-        "-i", "--input", type=str, required=True, help="Path to input image file (PNG, JPEG, etc.)."
-    )
-    parser.add_argument(
-        "-o", "--output", type=str, required=True, help="Path to destination .sanc bitstream file."
-    )
-    parser.add_argument(
-        "-c", "--checkpoint", type=str, default=None, help="Path to trained ModelA checkpoint (.pt)."
-    )
+    parser.add_argument("-i", "--input", type=str, required=True, help="Path to input image file (PNG, JPEG, etc.).")
+    parser.add_argument("-o", "--output", type=str, required=True, help="Path to destination .sanc bitstream file.")
+    parser.add_argument("-c", "--checkpoint", type=str, default=None, help="Path to trained ModelA checkpoint (.pt).")
     parser.add_argument(
         "--device",
         type=str,

@@ -366,4 +366,3 @@ class TestEdgeCasesAndErrors:
         assert compressed_bytes < raw_bytes / 5, (
             f"Expected high compression for constant symbols, got {compressed_bytes} bytes vs {raw_bytes} raw"
         )
-

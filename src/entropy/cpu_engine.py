@@ -87,9 +87,7 @@ class DeterministicCPUEngine:
         else:
             from src.codec.model_a import HyperSynthesisTransform
 
-            self.h_s = HyperSynthesisTransform(
-                in_channels=128, n_channels=128, out_channels=192
-            ).cpu().float().eval()
+            self.h_s = HyperSynthesisTransform(in_channels=128, n_channels=128, out_channels=192).cpu().float().eval()
 
         self.h_s.requires_grad_(False)
 

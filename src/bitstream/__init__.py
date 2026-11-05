@@ -20,4 +20,3 @@ __all__ = [
     "encode_image",
     "load_image_tensor",
 ]
-

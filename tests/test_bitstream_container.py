@@ -300,4 +300,3 @@ class TestCodecCLIExecution:
         # Check recovered image
         recon_img = Image.open(img_out)
         assert recon_img.size == (128, 128)
-

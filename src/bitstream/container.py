@@ -119,9 +119,7 @@ class SancContainer:
         r"""Deserializes container from binary bytes with strict header validation."""
         min_size = HEADER_STRUCT.size + PAYLOAD_LEN_STRUCT.size * 2
         if len(data) < min_size:
-            raise ValueError(
-                f"Container data truncated: expected at least {min_size} bytes, got {len(data)}"
-            )
+            raise ValueError(f"Container data truncated: expected at least {min_size} bytes, got {len(data)}")
 
         (
             magic,
@@ -140,9 +138,7 @@ class SancContainer:
             raise ValueError(f"Invalid magic signature: expected {MAGIC_BYTES!r}, got {magic!r}")
 
         if version != CURRENT_VERSION:
-            raise ValueError(
-                f"Unsupported container version: {version}. Expected version {CURRENT_VERSION}"
-            )
+            raise ValueError(f"Unsupported container version: {version}. Expected version {CURRENT_VERSION}")
 
         if orig_h <= 0 or orig_w <= 0:
             raise ValueError(f"Invalid image dimensions: {orig_w}x{orig_h}")
@@ -150,9 +146,7 @@ class SancContainer:
         h_pad = orig_h + pt + pb
         w_pad = orig_w + pl + pr
         if h_pad % 64 != 0 or w_pad % 64 != 0:
-            raise ValueError(
-                f"Padded dimensions {w_pad}x{h_pad} not divisible by 64 (margins: {pt},{pb},{pl},{pr})"
-            )
+            raise ValueError(f"Padded dimensions {w_pad}x{h_pad} not divisible by 64 (margins: {pt},{pb},{pl},{pr})")
 
         offset = HEADER_STRUCT.size
         (z_len,) = PAYLOAD_LEN_STRUCT.unpack_from(data, offset)
@@ -346,9 +340,7 @@ def decode_image(
     _, scale_indexes = cpu_engine.forward(q_z)
 
     # Main latent entropy decoding
-    q_y = decode_latents(
-        container.y_bitstream, scale_indexes, model.gaussian_conditional, backend=backend
-    )
+    q_y = decode_latents(container.y_bitstream, scale_indexes, model.gaussian_conditional, backend=backend)
 
     target_device = torch.device(device)
     model.eval()

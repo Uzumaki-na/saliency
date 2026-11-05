@@ -160,4 +160,3 @@ class TestDeterministicCPUEngine:
 
         # Assert internal weights match mutated model weights
         assert torch.equal(engine.h_s.conv3.weight, model.h_s.conv3.weight.cpu())
-
