@@ -16,6 +16,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
+from src.codec.entropy_models import EntropyBottleneck, GaussianConditional
 from src.codec.layers import GDN, IGDN
 
 
@@ -30,6 +31,8 @@ class ModelOutput(dict):
         log_sigma: torch.Tensor,
         y_hat: torch.Tensor | None = None,
         z_hat: torch.Tensor | None = None,
+        y_likelihoods: torch.Tensor | None = None,
+        z_likelihoods: torch.Tensor | None = None,
     ) -> None:
         super().__init__(
             x_hat=x_hat,
@@ -38,6 +41,8 @@ class ModelOutput(dict):
             log_sigma=log_sigma,
             y_hat=y_hat if y_hat is not None else y,
             z_hat=z_hat if z_hat is not None else z,
+            y_likelihoods=y_likelihoods,
+            z_likelihoods=z_likelihoods,
         )
 
     def __getattr__(self, name: str) -> Any:
@@ -295,6 +300,8 @@ class ModelA(nn.Module):
         self.h_s = HyperSynthesisTransform(
             in_channels=self.n_channels, n_channels=self.n_channels, out_channels=self.m_channels
         )
+        self.entropy_bottleneck = EntropyBottleneck(channels=self.n_channels)
+        self.gaussian_conditional = GaussianConditional()
 
     def quantize(self, tensor: torch.Tensor, training: bool | None = None) -> torch.Tensor:
         r"""Quantizes a latent tensor via continuous uniform noise (training) or rounding (eval)."""
@@ -351,10 +358,11 @@ class ModelA(nn.Module):
         y = self.g_a(x)
         z = self.h_a(y)
 
-        y_hat = self.quantize(y, training=training)
-        z_hat = self.quantize(z, training=training)
-
+        z_hat, z_likelihoods = self.entropy_bottleneck(z, training=training)
         log_sigma = self.h_s(z_hat)
+        sigma = torch.exp(log_sigma)
+
+        y_hat, y_likelihoods = self.gaussian_conditional(y, sigma, training=training)
         x_hat = self.g_s(y_hat)
 
         return ModelOutput(
@@ -364,4 +372,16 @@ class ModelA(nn.Module):
             log_sigma=log_sigma,
             y_hat=y_hat,
             z_hat=z_hat,
+            y_likelihoods=y_likelihoods,
+            z_likelihoods=z_likelihoods,
         )
+
+    def update(self, force: bool = False) -> dict[str, bool]:
+        r"""Compiles discrete CDF tables for both entropy models."""
+        eb_res = self.entropy_bottleneck.update(force=force)
+        gc_res = self.gaussian_conditional.update_scale_table()
+        return {"entropy_bottleneck": eb_res, "gaussian_conditional": gc_res}
+
+    def aux_loss(self) -> torch.Tensor:
+        r"""Returns auxiliary parameter loss for entropy bottleneck."""
+        return self.entropy_bottleneck.loss()

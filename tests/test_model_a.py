@@ -385,7 +385,8 @@ class TestModelA:
         out = model(x, training=True)
 
         target_log_sigma = torch.zeros_like(out.log_sigma)
-        combined_loss = F.mse_loss(out.x_hat, x) + 0.1 * F.mse_loss(out.log_sigma, target_log_sigma)
+        rate_loss = -torch.log2(out.y_likelihoods).mean() - torch.log2(out.z_likelihoods).mean()
+        combined_loss = F.mse_loss(out.x_hat, x) + 0.1 * F.mse_loss(out.log_sigma, target_log_sigma) + 0.01 * rate_loss
         combined_loss.backward()
 
         # Check input gradients
@@ -428,7 +429,8 @@ class TestModelA:
 
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             out = model(x, training=True)
-            loss = F.mse_loss(out.x_hat, x) + 0.1 * out.log_sigma.pow(2).mean()
+            rate_loss = -torch.log2(out.y_likelihoods).mean() - torch.log2(out.z_likelihoods).mean()
+            loss = F.mse_loss(out.x_hat, x) + 0.1 * out.log_sigma.pow(2).mean() + 0.01 * rate_loss
 
         # Precision invariants
         assert out.y.dtype == torch.float32, "Analysis transform final latent y must be strict FP32"

@@ -8,6 +8,10 @@ Exports:
 - ModelOutput, ModelA: Baseline compression model and output container.
 """
 
+from src.codec.entropy_models import (
+    EntropyBottleneck,
+    GaussianConditional,
+)
 from src.codec.layers import (
     GDN,
     IGDN,
@@ -28,6 +32,8 @@ __all__ = [
     "GDN",
     "IGDN",
     "AnalysisTransform",
+    "EntropyBottleneck",
+    "GaussianConditional",
     "HyperAnalysisTransform",
     "HyperSynthesisTransform",
     "LowerBound",

@@ -616,6 +616,37 @@ wheels = [
 ]
 
 [[package]]
+name = "constriction"
+version = "0.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ab/1f/058d48a2e46e28e8c01f45139d547119c746be1fd3b84e2ebdbec0ecc37f/constriction-0.5.0-cp311-cp311-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:72ffe79afb94ac1f9d7f88b6cfc7c0212ea2105a0328cfc9a75bc1a9dbb19f55", size = 740499, upload-time = "2026-07-17T21:14:35.521Z" },
+    { url = "https://files.pythonhosted.org/packages/51/c6/5f52b17c37406f078074c6b6d17e69c56881bbcc823a51d5a59ac1cf3c43/constriction-0.5.0-cp311-cp311-macosx_10_12_x86_64.whl", hash = "sha256:a6c1e888c74cc46a30797ae532abc107d3c0f847c22d39400b9a82a8e868fccd", size = 381880, upload-time = "2026-07-17T21:14:36.638Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/57/3904fa7940b0e730526733d13bb8fb3f1e6f97b2cc5fd320cc14ee861261/constriction-0.5.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:7c4394e3b5ba4d19dc82d4f3a74420384552ef3a6dc80e953839667c1de374fd", size = 379597, upload-time = "2026-07-17T21:14:37.581Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/62/1e5355b0a3975841181607a8a721c2fe9576ee4483c891e5903c0bca6cee/constriction-0.5.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:eb7909d0ad4940d3b74696d98f0dc16dec7294e57f9e0797bc06d5ce7b3b1507", size = 410375, upload-time = "2026-07-17T21:11:47.796Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/ac/057e3ece1cdec26e221e437d79e8e5474e2e26316e1eda8947785b5ee815/constriction-0.5.0-cp311-cp311-win_amd64.whl", hash = "sha256:5840d47681b850c1e0fcb1a0b31a5779edbc6f67352d45d511dbab51dbad42f6", size = 306781, upload-time = "2026-07-17T21:41:54.825Z" },
+    { url = "https://files.pythonhosted.org/packages/ae/4f/f8b17efe27bbf50099849b2c469eeb319675cc756785780e5ce8bed626b0/constriction-0.5.0-cp312-cp312-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:180630e473fe9417ea5965c99a60f71c33e4554d8016ab80d5ed2a0853c9303a", size = 740610, upload-time = "2026-07-17T21:14:38.713Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/22/3cd340a047d24b0d3201d8cc8313c772d885e11edea1211f275c981bb584/constriction-0.5.0-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:7e8fa40ed400f461f1c2809d061a7d036d4e2631b525dc58fd70f92d938027c5", size = 387157, upload-time = "2026-07-17T21:14:39.924Z" },
+    { url = "https://files.pythonhosted.org/packages/90/ff/934d6b59fc6779b7ac57371fc7c2aa17042aa29d5aff4a4bcc5eb6a0cc84/constriction-0.5.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:5474c99c7ecbd9d64de975f08b5571303bc1cb9d2544cc70e6925dd3a7713be6", size = 375743, upload-time = "2026-07-17T21:14:40.907Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/2f/5b652525e6ae6e09c574a86b1e07cf50d9c2def834f49d55f5ddd7a4e4d6/constriction-0.5.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d74dbfb7f0d413862df31cb634759bd49ffa307f36948ed6ffa6c5f66ac9af0b", size = 405717, upload-time = "2026-07-17T21:11:48.86Z" },
+    { url = "https://files.pythonhosted.org/packages/4e/3c/866fc7f84c0121c9d1b2aaec2b8572c7760d895f0884698d6dc725d7e72e/constriction-0.5.0-cp312-cp312-win_amd64.whl", hash = "sha256:f541190e373393c611b0049fffddc197274a66741e75172ff32eb481cc433939", size = 305549, upload-time = "2026-07-17T21:41:55.962Z" },
+    { url = "https://files.pythonhosted.org/packages/d3/4b/1f4e93b935094dec6b8c510d90b8701b0eb44b0db531cef7f24e7228d32d/constriction-0.5.0-cp313-cp313-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:10d5299e2df56cb116db62a8ec291b157d648821e05ddc65d2ce629b033b49cb", size = 740363, upload-time = "2026-07-17T21:14:42.077Z" },
+    { url = "https://files.pythonhosted.org/packages/75/7b/90f345d7d78d51648a16e2cf1ca16275973eac36fe81937c9219305dc5cf/constriction-0.5.0-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:e54fe30470f91a93e6126a339c41b339069f85a95b7d20154f21c4d051a712d4", size = 387030, upload-time = "2026-07-17T21:14:43.109Z" },
+    { url = "https://files.pythonhosted.org/packages/57/ef/4b1e733307cb5927cf5fc4e18c950d8f34735affe450298aedc47f5b6c1b/constriction-0.5.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:424aa962db200d80f04b03b1f6b7076ec56d5f1a653eaa0535ccd5eb60328eaa", size = 375626, upload-time = "2026-07-17T21:14:44.129Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/d3/a9a57d4fd8be519db6fac72ccb2bcd94f34e17dd14e3313bcc649e645a17/constriction-0.5.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:345e6e9edc30fb1dfb0e35fadf6ba84e437f177a34e6a9250a56d5e00ae945f9", size = 405668, upload-time = "2026-07-17T21:11:49.972Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/ed/7133cf387e667407209e0a246d9bd2e0c2f8654426b27d83cd62119b1207/constriction-0.5.0-cp313-cp313-win_amd64.whl", hash = "sha256:b9a535c33b204d2ee5b02127a52c673fe491f296abd8638649e8af45868fb21e", size = 305281, upload-time = "2026-07-17T21:41:57.036Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/06/c52aa018be1cce58678c52c00527692163244a577a2a53f3921f7a26da6f/constriction-0.5.0-cp314-cp314-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:c182ba2d82b93a4219f3494efd26cb0c87f865fc3d47645d7a62682f962caa99", size = 745217, upload-time = "2026-07-17T21:14:45.131Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/72/23ba42295a674024c08c87ecf5c04e3892339dc5fc53782bb44028f15a73/constriction-0.5.0-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:46cc636d06f67cb4b6f4dfb1efcb15123d045263b32645c5ced9bbef42de2b2a", size = 389239, upload-time = "2026-07-17T21:14:46.149Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/f5/c584e1985fd8b530bf1fa72f2cd0ad0ab72a830b29560023a1457618ea07/constriction-0.5.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:daeac125e23505d859c2591bbc3287aa0d82205ae3fb92463989ed8157d954cb", size = 378255, upload-time = "2026-07-17T21:14:47.336Z" },
+    { url = "https://files.pythonhosted.org/packages/8a/7d/767130bc6d9bd11c21d13db90bdc6aea7e2f4aad855492db28e36ec68ffb/constriction-0.5.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e25e26f01afbb51fafb6593856d4d0d7f9486ab50c450fd8568f2743f81fd9be", size = 406686, upload-time = "2026-07-17T21:11:51.101Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/7b/9a12b0eac13b1d161319e99d5e1743cca66eec365c9aa75b7aff91c944d5/constriction-0.5.0-cp314-cp314-win_amd64.whl", hash = "sha256:28c3d737d75e2af593f707fc0320a232a790a69ab60ed6beeaa6baa8a08d8cef", size = 306943, upload-time = "2026-07-17T21:41:58.129Z" },
+]
+
+[[package]]
 name = "cryptography"
 version = "50.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2731,6 +2762,7 @@ name = "saliency-aware-neural-compression"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "constriction" },
     { name = "dvc" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -2742,6 +2774,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "constriction", specifier = ">=0.5.0" },
     { name = "dvc", specifier = ">=3.67.1" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "pillow", specifier = ">=9.0.0" },
