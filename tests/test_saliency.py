@@ -35,6 +35,7 @@ from src.data.saliency import (
 # 1. Percentile Normalization Tests
 # ==============================================================================
 
+
 def test_normalize_saliency_percentile_outliers() -> None:
     """Extreme outliers must be clipped to 0 and 255 without NaNs."""
     np.random.seed(42)
@@ -82,7 +83,7 @@ def test_normalize_saliency_percentile_torch_tensor_input() -> None:
     """Torch tensor inputs (with or without grad) must convert to uint8 NumPy arrays."""
     t = torch.linspace(0.0, 10.0, steps=1000, dtype=torch.float32).reshape(20, 50)
     t.requires_grad_(True)
-    loss = (t ** 2).sum()
+    loss = (t**2).sum()
     loss.backward()
 
     normalized = normalize_saliency_percentile(t)
@@ -104,12 +105,13 @@ def test_normalize_saliency_percentile_nan_inf_sanitization() -> None:
     assert not np.isnan(normalized).any()
     assert not np.isinf(normalized).any()
     assert normalized[1, 1] == 255  # Positive infinity sanitized and clipped to 255
-    assert normalized[0, 0] == 0    # Negative infinity sanitized and clipped to 0
+    assert normalized[0, 0] == 0  # Negative infinity sanitized and clipped to 0
 
 
 # ==============================================================================
 # 2. FastSal Model Architecture & Inference Tests
 # ==============================================================================
+
 
 @pytest.fixture(scope="module")
 def fastsal_model() -> FastSal:
@@ -120,11 +122,11 @@ def fastsal_model() -> FastSal:
 @pytest.mark.parametrize(
     "spatial_shape",
     [
-        (224, 224),   # Standard square
-        (512, 768),   # Kodak landscape (H, W)
-        (768, 512),   # Kodak portrait (H, W)
-        (375, 500),   # MIT1003 odd aspect ratio
-        (103, 157),   # Arbitrary non-divisible prime dimensions
+        (224, 224),  # Standard square
+        (512, 768),  # Kodak landscape (H, W)
+        (768, 512),  # Kodak portrait (H, W)
+        (375, 500),  # MIT1003 odd aspect ratio
+        (103, 157),  # Arbitrary non-divisible prime dimensions
     ],
 )
 def test_fastsal_spatial_resolution_preservation_numpy(
@@ -228,6 +230,7 @@ def test_fastsal_device_derivation() -> None:
 # 3. Offline Extraction and Caching Pipeline Tests
 # ==============================================================================
 
+
 def test_extract_and_cache_saliency_pipeline(tmp_path: Path) -> None:
     """extract_and_cache_saliency must generate valid single-channel 8-bit PNGs in tmp_path."""
     raw_dir = tmp_path / "data" / "raw" / "mock"
@@ -236,9 +239,9 @@ def test_extract_and_cache_saliency_pipeline(tmp_path: Path) -> None:
 
     # Create 3 synthetic test images with varying dimensions
     shapes = [
-        ("img_01.png", (80, 120)),   # H=80, W=120
+        ("img_01.png", (80, 120)),  # H=80, W=120
         ("img_02.png", (150, 100)),  # H=150, W=100
-        ("img_03.png", (90, 90)),    # H=90, W=90
+        ("img_03.png", (90, 90)),  # H=90, W=90
     ]
     filenames: list[str] = []
     for name, (h, w) in shapes:
@@ -255,6 +258,7 @@ def test_extract_and_cache_saliency_pipeline(tmp_path: Path) -> None:
     )
 
     from src.data.manifests import DATASET_REGISTRY
+
     DATASET_REGISTRY["mock"] = [mock_manifest]
 
     try:
@@ -310,6 +314,7 @@ def test_extract_and_cache_non_png_source_canonical_filename(tmp_path: Path) -> 
     )
 
     from src.data.manifests import DATASET_REGISTRY
+
     DATASET_REGISTRY["mock_jpeg"] = [mock_manifest]
 
     try:
@@ -348,6 +353,7 @@ def test_extract_and_cache_sample_count_validation(tmp_path: Path) -> None:
     )
 
     from src.data.manifests import DATASET_REGISTRY
+
     DATASET_REGISTRY["mock_few"] = [mock_manifest]
 
     try:
@@ -376,6 +382,7 @@ def test_extract_and_cache_invalid_sample_count() -> None:
 # 4. CLI Execution Tests
 # ==============================================================================
 
+
 def test_prepare_data_cli_extract_saliency_kodak_subsample(tmp_path: Path) -> None:
     """CLI execution with --extract-saliency --dataset kodak --sample 2 caches 2 files in tmp_path."""
     raw_kodak = tmp_path / "data" / "raw" / "kodak"
@@ -383,14 +390,20 @@ def test_prepare_data_cli_extract_saliency_kodak_subsample(tmp_path: Path) -> No
     Image.new("RGB", (768, 512), color=(100, 150, 200)).save(raw_kodak / "kodim01.png")
     Image.new("RGB", (768, 512), color=(50, 80, 120)).save(raw_kodak / "kodim02.png")
 
-    exit_code = prepare_data_main([
-        "--extract-saliency",
-        "--dataset", "kodak",
-        "--sample", "2",
-        "--device", "cpu",
-        "--data-dir", str(tmp_path),
-        "--quiet",
-    ])
+    exit_code = prepare_data_main(
+        [
+            "--extract-saliency",
+            "--dataset",
+            "kodak",
+            "--sample",
+            "2",
+            "--device",
+            "cpu",
+            "--data-dir",
+            str(tmp_path),
+            "--quiet",
+        ]
+    )
     assert exit_code == 0
 
     cache_dir = tmp_path / "data" / "saliency_cache" / "kodak"
@@ -412,12 +425,16 @@ def test_prepare_data_cli_missing_source_files_fails(tmp_path: Path) -> None:
     empty_kodak = tmp_path / "data" / "raw" / "kodak"
     empty_kodak.mkdir(parents=True, exist_ok=True)
 
-    exit_code = prepare_data_main([
-        "--extract-saliency",
-        "--dataset", "kodak",
-        "--data-dir", str(tmp_path),
-        "--quiet",
-    ])
+    exit_code = prepare_data_main(
+        [
+            "--extract-saliency",
+            "--dataset",
+            "kodak",
+            "--data-dir",
+            str(tmp_path),
+            "--quiet",
+        ]
+    )
     assert exit_code == 1
 
 

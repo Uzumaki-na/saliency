@@ -310,9 +310,7 @@ class SaliencyImageDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         manifest: DatasetManifest | None = None
         if dataset_name is not None or image_dir is None:
             resolved_name = (
-                dataset_name
-                if dataset_name is not None
-                else self._default_dataset_name_for_split(self.split)
+                dataset_name if dataset_name is not None else self._default_dataset_name_for_split(self.split)
             )
             manifest = self._resolve_manifest(resolved_name, self.split)
 
@@ -419,10 +417,7 @@ class SaliencyImageDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
             files = list(filenames)
         elif self.image_dir.exists():
             valid_exts = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
-            disk_files = {
-                p.name for p in self.image_dir.iterdir()
-                if p.is_file() and p.suffix.lower() in valid_exts
-            }
+            disk_files = {p.name for p in self.image_dir.iterdir() if p.is_file() and p.suffix.lower() in valid_exts}
             if manifest is not None and manifest.filenames:
                 matched = [f for f in manifest.filenames if f in disk_files]
                 if matched:

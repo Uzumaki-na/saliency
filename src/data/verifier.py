@@ -83,11 +83,7 @@ class DatasetVerificationReport:
     @property
     def is_valid(self) -> bool:
         """Return True if all expected files are present, valid, and uncorrupted."""
-        return (
-            self.missing_count == 0
-            and self.corrupted_count == 0
-            and self.valid_count == self.expected_count
-        )
+        return self.missing_count == 0 and self.corrupted_count == 0 and self.valid_count == self.expected_count
 
     @property
     def missing_files(self) -> list[str]:
@@ -105,9 +101,7 @@ def _resolve_target_dir(manifest_target_dir: Path, base_dir: Path | None) -> Pat
     return resolve_target_dir(manifest_target_dir, base_dir)
 
 
-def verify_dataset(
-    manifest: DatasetManifest, base_dir: Path | None = None
-) -> DatasetVerificationReport:
+def verify_dataset(manifest: DatasetManifest, base_dir: Path | None = None) -> DatasetVerificationReport:
     """Verify integrity of all files defined in a dataset manifest.
 
     Args:
@@ -194,9 +188,7 @@ def verify_dataset(
                     expected_md5=expected_md5,
                     actual_md5=actual_md5,
                     file_size_bytes=file_size,
-                    error_message=(
-                        f"MD5 hash mismatch: expected {expected_md5}, got {actual_md5}"
-                    ),
+                    error_message=(f"MD5 hash mismatch: expected {expected_md5}, got {actual_md5}"),
                 )
             )
         else:
@@ -239,7 +231,7 @@ def format_verification_summary(reports: Sequence[DatasetVerificationReport]) ->
     for rep in reports:
         status_str = "OK" if rep.is_valid else "FAILED"
         row_values = [
-            rep.dataset_name[:col_widths[0]].ljust(col_widths[0]),
+            rep.dataset_name[: col_widths[0]].ljust(col_widths[0]),
             str(rep.expected_count).rjust(col_widths[1]),
             str(rep.valid_count).rjust(col_widths[2]),
             str(rep.missing_count).rjust(col_widths[3]),

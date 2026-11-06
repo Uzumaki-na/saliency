@@ -189,9 +189,7 @@ def download_kodak(manifest: DatasetManifest, base_dir: Path | None = None) -> b
     return True
 
 
-def download_archive_dataset(
-    manifest: DatasetManifest, base_dir: Path | None = None
-) -> bool:
+def download_archive_dataset(manifest: DatasetManifest, base_dir: Path | None = None) -> bool:
     """Download and extract a zip archive dataset (DIV2K or MIT1003)."""
     target_dir = resolve_target_dir(manifest.target_dir, base_dir)
 
@@ -282,9 +280,7 @@ def run_download(manifests: Sequence[DatasetManifest], base_dir: Path | None = N
     return overall_success
 
 
-def run_verification(
-    manifests: Sequence[DatasetManifest], base_dir: Path | None = None
-) -> int:
+def run_verification(manifests: Sequence[DatasetManifest], base_dir: Path | None = None) -> int:
     """Verify integrity for given manifests and return CLI exit code (0 on success, 1 on failure)."""
     reports = verify_datasets(manifests, base_dir=base_dir)
     print("\n" + format_verification_summary(reports) + "\n")

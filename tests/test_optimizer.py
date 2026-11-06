@@ -170,6 +170,7 @@ class TestParameterPartitioning:
 
     def test_submodule_parameter_recursion_arbitrary_attribute_name(self) -> None:
         """EntropyBottleneck parameters in ParameterLists are captured even with arbitrary attribute names."""
+
         class ArbitrarySubmoduleModel(nn.Module):
             def __init__(self) -> None:
                 super().__init__()

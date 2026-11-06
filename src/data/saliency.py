@@ -152,15 +152,9 @@ class MultiscaleDecoder(nn.Module):
         f1, f2, f3, f4 = features
 
         p4 = self.conv4(f4)
-        p3 = self.conv3(f3) + F.interpolate(
-            p4, size=f3.shape[2:], mode="bilinear", align_corners=False
-        )
-        p2 = self.conv2(f2) + F.interpolate(
-            p3, size=f2.shape[2:], mode="bilinear", align_corners=False
-        )
-        p1 = self.conv1(f1) + F.interpolate(
-            p2, size=f1.shape[2:], mode="bilinear", align_corners=False
-        )
+        p3 = self.conv3(f3) + F.interpolate(p4, size=f3.shape[2:], mode="bilinear", align_corners=False)
+        p2 = self.conv2(f2) + F.interpolate(p3, size=f2.shape[2:], mode="bilinear", align_corners=False)
+        p1 = self.conv1(f1) + F.interpolate(p2, size=f1.shape[2:], mode="bilinear", align_corners=False)
 
         out = self.refine(p1)
         saliency = F.interpolate(out, size=target_size, mode="bilinear", align_corners=False)
@@ -190,6 +184,7 @@ class FastSal(nn.Module):
         elif pretrained:
             try:
                 from torchvision.models import MobileNet_V2_Weights
+
                 backbone_weights = MobileNet_V2_Weights.DEFAULT
             except (ImportError, AttributeError, RuntimeError, OSError):
                 backbone_weights = None
@@ -200,10 +195,10 @@ class FastSal(nn.Module):
             mobilenet = models.mobilenet_v2(weights=None)
 
         # Slice backbone into 4 multiscale feature stages
-        self.stage1 = mobilenet.features[:4]    # stride 4, channels 24
-        self.stage2 = mobilenet.features[4:7]   # stride 8, channels 32
+        self.stage1 = mobilenet.features[:4]  # stride 4, channels 24
+        self.stage2 = mobilenet.features[4:7]  # stride 8, channels 32
         self.stage3 = mobilenet.features[7:14]  # stride 16, channels 96
-        self.stage4 = mobilenet.features[14:19] # stride 32, channels 1280
+        self.stage4 = mobilenet.features[14:19]  # stride 32, channels 1280
 
         self.decoder = MultiscaleDecoder(
             in_channels=(24, 32, 96, 1280),
@@ -360,16 +355,17 @@ class FastSal(nn.Module):
 
         if raw_arr.ndim == 4:
             # (B, 1, H, W) -> normalize each batch item independently
-            return np.stack([
-                normalize_saliency_percentile(raw_arr[i, 0], p_low=p_low, p_high=p_high)
-                for i in range(raw_arr.shape[0])
-            ])
+            return np.stack(
+                [
+                    normalize_saliency_percentile(raw_arr[i, 0], p_low=p_low, p_high=p_high)
+                    for i in range(raw_arr.shape[0])
+                ]
+            )
         elif raw_arr.ndim == 3 and raw_arr.shape[0] > 1:
             # Batched (B, H, W)
-            return np.stack([
-                normalize_saliency_percentile(raw_arr[i], p_low=p_low, p_high=p_high)
-                for i in range(raw_arr.shape[0])
-            ])
+            return np.stack(
+                [normalize_saliency_percentile(raw_arr[i], p_low=p_low, p_high=p_high) for i in range(raw_arr.shape[0])]
+            )
         return normalize_saliency_percentile(raw_arr, p_low=p_low, p_high=p_high)
 
 
@@ -443,8 +439,7 @@ def extract_and_cache_saliency(
             all_files = list(manifest.filenames)
         elif raw_dir.exists():
             all_files = sorted(
-                p.name for p in raw_dir.iterdir()
-                if p.is_file() and p.suffix.lower() in (".png", ".jpg", ".jpeg")
+                p.name for p in raw_dir.iterdir() if p.is_file() and p.suffix.lower() in (".png", ".jpg", ".jpeg")
             )
         else:
             all_files = []
@@ -455,10 +450,7 @@ def extract_and_cache_saliency(
             target_files = all_files
 
         if not quiet:
-            print(
-                f"\n[SALIENCY] Extracting for '{manifest.name}': "
-                f"{len(target_files)} target images -> {cache_dir}"
-            )
+            print(f"\n[SALIENCY] Extracting for '{manifest.name}': {len(target_files)} target images -> {cache_dir}")
 
         cached_count = 0
         missing_count = 0

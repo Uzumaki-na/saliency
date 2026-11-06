@@ -160,9 +160,7 @@ def compute_msssim(
 
     _, c, h, w = x.shape
     if h < 32 or w < 32:
-        raise ValueError(
-            f"Input spatial dimensions ({h}, {w}) must be >= 32 for 5-scale MS-SSIM evaluation."
-        )
+        raise ValueError(f"Input spatial dimensions ({h}, {w}) must be >= 32 for 5-scale MS-SSIM evaluation.")
 
     if weights is None:
         raw_weights = (0.0448, 0.2856, 0.3001, 0.2363, 0.1333)
@@ -286,9 +284,7 @@ def compute_bpp(
         tensors = [v for v in likelihoods_or_bytes.values() if isinstance(v, torch.Tensor)]
         if not tensors:
             return torch.tensor(0.0, dtype=torch.float32) if as_tensor else 0.0
-        total_bits: torch.Tensor = sum(
-            -torch.sum(torch.log2(torch.clamp(t.float(), min=1e-12))) for t in tensors
-        )  # type: ignore[assignment]
+        total_bits: torch.Tensor = sum(-torch.sum(torch.log2(torch.clamp(t.float(), min=1e-12))) for t in tensors)  # type: ignore[assignment]
         bpp_tensor = total_bits / resolved_num_pixels
         return bpp_tensor if as_tensor else float(bpp_tensor.item())
 
@@ -304,9 +300,7 @@ def compute_bpp(
         tensors = [item for item in likelihoods_or_bytes if isinstance(item, torch.Tensor)]
         if not tensors:
             return torch.tensor(0.0, dtype=torch.float32) if as_tensor else 0.0
-        total_bits: torch.Tensor = sum(
-            -torch.sum(torch.log2(torch.clamp(t.float(), min=1e-12))) for t in tensors
-        )  # type: ignore[assignment]
+        total_bits: torch.Tensor = sum(-torch.sum(torch.log2(torch.clamp(t.float(), min=1e-12))) for t in tensors)  # type: ignore[assignment]
         bpp_tensor = total_bits / resolved_num_pixels
         return bpp_tensor if as_tensor else float(bpp_tensor.item())
 

@@ -46,11 +46,14 @@ ALL_REQUIRED_DIRS: tuple[Path, ...] = ALL_RAW_DIRS + ALL_CACHE_DIRS
 KODAK_FILENAMES: tuple[str, ...] = tuple(f"kodim{i:02d}.png" for i in range(1, 25))
 DIV2K_TRAIN_FILENAMES: tuple[str, ...] = tuple(f"{i:04d}.png" for i in range(1, 801))
 DIV2K_VAL_FILENAMES: tuple[str, ...] = tuple(f"{i:04d}.png" for i in range(801, 901))
+
+
 def _load_mit1003_test_filenames() -> tuple[str, ...]:
     manifest_path = Path(__file__).resolve().parent.parent.parent / "data" / "manifests" / "mit1003_test_split.json"
     if manifest_path.exists():
         try:
             import json
+
             with open(manifest_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 filenames = data.get("filenames", [])

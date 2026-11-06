@@ -547,9 +547,7 @@ class TestValidationLoopUnalignedImages:
 class TestCheckpointPersistenceAndWarmStart:
     """Verifies post-training CDF table compilation, checkpoint reloading, and warm-starts."""
 
-    def test_checkpoint_contains_compiled_cdfs_and_reloads_into_fresh_model(
-        self, temp_dir: Path
-    ) -> None:
+    def test_checkpoint_contains_compiled_cdfs_and_reloads_into_fresh_model(self, temp_dir: Path) -> None:
         """Trained checkpoint file contains compiled _quantized_cdf buffers and reloads cleanly."""
         model = ModelA(n_channels=16, m_channels=32)
         optimizer_harness = create_dual_optimizer(model)
@@ -796,9 +794,7 @@ class TestEndToEndTrainingPipeline:
         saved_ckpt = torch.load(best_path, map_location="cpu", weights_only=False)
         assert saved_ckpt["epoch"] == 1
 
-    def test_best_checkpoint_tracking_psnr_metric(
-        self, temp_dir: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_best_checkpoint_tracking_psnr_metric(self, temp_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """best_checkpoint.pt tracks maximum PSNR when best_metric='psnr' and rejects lower PSNR."""
         train_dataset = SyntheticSaliencyDataset(num_samples=2, height=64, width=64)
         val_dataset = SyntheticSaliencyDataset(num_samples=2, height=64, width=64)
@@ -858,9 +854,7 @@ class TestEndToEndTrainingPipeline:
         saved_ckpt = torch.load(best_path, map_location="cpu", weights_only=False)
         assert saved_ckpt["epoch"] == 1
 
-    def test_train_exception_marks_mlflow_run_failed(
-        self, temp_dir: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_train_exception_marks_mlflow_run_failed(self, temp_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """train() terminates MLflow run with status='FAILED' when training raises an exception."""
         mlflow_dir = temp_dir / "mlruns_err"
         tracker = MLflowTracker(

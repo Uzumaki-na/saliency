@@ -246,40 +246,26 @@ def generate_summary_table(results: dict[str, Any] | list[dict[str, Any]]) -> st
 
         bpp_val = r.get("bpp") if r.get("bpp") is not None else r.get("bpp_loss")
         try:
-            bpp_str = (
-                f"{float(bpp_val):.4f}"
-                if (bpp_val is not None and not np.isnan(float(bpp_val)))
-                else "N/A"
-            )
+            bpp_str = f"{float(bpp_val):.4f}" if (bpp_val is not None and not np.isnan(float(bpp_val))) else "N/A"
         except (ValueError, TypeError):
             bpp_str = "N/A"
 
         mse_val = r.get("mse") if r.get("mse") is not None else r.get("mse_loss")
         try:
-            mse_str = (
-                f"{float(mse_val):.6f}"
-                if (mse_val is not None and not np.isnan(float(mse_val)))
-                else "N/A"
-            )
+            mse_str = f"{float(mse_val):.6f}" if (mse_val is not None and not np.isnan(float(mse_val))) else "N/A"
         except (ValueError, TypeError):
             mse_str = "N/A"
 
         psnr_val = r.get("psnr")
         try:
-            psnr_str = (
-                f"{float(psnr_val):.2f}"
-                if (psnr_val is not None and not np.isnan(float(psnr_val)))
-                else "N/A"
-            )
+            psnr_str = f"{float(psnr_val):.2f}" if (psnr_val is not None and not np.isnan(float(psnr_val))) else "N/A"
         except (ValueError, TypeError):
             psnr_str = "N/A"
 
         msssim_val = r.get("msssim") if r.get("msssim") is not None else r.get("ms_ssim")
         try:
             msssim_str = (
-                f"{float(msssim_val):.4f}"
-                if (msssim_val is not None and not np.isnan(float(msssim_val)))
-                else "N/A"
+                f"{float(msssim_val):.4f}" if (msssim_val is not None and not np.isnan(float(msssim_val))) else "N/A"
             )
         except (ValueError, TypeError):
             msssim_str = "N/A"
@@ -506,9 +492,7 @@ def run_sweep(
 
     output_dir = Path(sweep_cfg.output_dir)
     base_ckpt_dir = (
-        Path(sweep_cfg.checkpoint_dir)
-        if sweep_cfg.checkpoint_dir is not None
-        else output_dir / "checkpoints"
+        Path(sweep_cfg.checkpoint_dir) if sweep_cfg.checkpoint_dir is not None else output_dir / "checkpoints"
     )
 
     # 1. Build sequential job matrix
@@ -611,11 +595,7 @@ def run_sweep(
             bpp = val_metrics.get("bpp") if val_metrics.get("bpp") is not None else val_metrics.get("bpp_loss")
             mse = val_metrics.get("mse") if val_metrics.get("mse") is not None else val_metrics.get("mse_loss")
             psnr = val_metrics.get("psnr")
-            msssim = (
-                val_metrics.get("msssim")
-                if val_metrics.get("msssim") is not None
-                else val_metrics.get("ms_ssim")
-            )
+            msssim = val_metrics.get("msssim") if val_metrics.get("msssim") is not None else val_metrics.get("ms_ssim")
             loss = val_metrics.get("loss")
 
             run_record: dict[str, Any] = {

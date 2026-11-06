@@ -280,9 +280,7 @@ def pad_image_and_saliency_centered(
         raise TypeError("Both x and S must be torch.Tensor instances")
 
     if x.ndim < 2 or x.ndim > 4 or S.ndim < 2 or S.ndim > 4:
-        raise ValueError(
-            f"Expected 2D, 3D, or 4D tensors, got x shape {tuple(x.shape)}, S shape {tuple(S.shape)}"
-        )
+        raise ValueError(f"Expected 2D, 3D, or 4D tensors, got x shape {tuple(x.shape)}, S shape {tuple(S.shape)}")
 
     if x.shape[-2:] != S.shape[-2:]:
         raise ValueError(
@@ -442,14 +440,10 @@ def compute_valid_latent_mask(
             f"Original spatial dimensions must be positive, got H_orig={actual_h_orig}, W_orig={actual_w_orig}"
         )
     if actual_h_pad <= 0 or actual_w_pad <= 0:
-        raise ValueError(
-            f"Padded spatial dimensions must be positive, got H_pad={actual_h_pad}, W_pad={actual_w_pad}"
-        )
+        raise ValueError(f"Padded spatial dimensions must be positive, got H_pad={actual_h_pad}, W_pad={actual_w_pad}")
 
     if actual_h_pad % stride != 0 or actual_w_pad % stride != 0:
-        raise ValueError(
-            f"Padded dimensions ({actual_h_pad}, {actual_w_pad}) must be divisible by stride {stride}"
-        )
+        raise ValueError(f"Padded dimensions ({actual_h_pad}, {actual_w_pad}) must be divisible by stride {stride}")
 
     h_latent = actual_h_pad // stride
     w_latent = actual_w_pad // stride

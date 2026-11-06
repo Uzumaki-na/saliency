@@ -320,16 +320,22 @@ def test_cli_setup_dirs(tmp_path: Path):
 def test_cli_extract_saliency_execution(tmp_path: Path, capsys: pytest.CaptureFixture):
     """CLI --extract-saliency executes offline extraction pipeline and exits 0."""
     from PIL import Image
+
     raw_dir = tmp_path / "data" / "raw" / "kodak"
     raw_dir.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", (64, 64), color=(100, 150, 200)).save(raw_dir / "kodim01.png")
 
-    code = main([
-        "--extract-saliency",
-        "--dataset", "kodak",
-        "--sample", "1",
-        "--data-dir", str(tmp_path),
-    ])
+    code = main(
+        [
+            "--extract-saliency",
+            "--dataset",
+            "kodak",
+            "--sample",
+            "1",
+            "--data-dir",
+            str(tmp_path),
+        ]
+    )
     assert code == 0
     captured = capsys.readouterr()
     assert "FastSal offline pre-extraction" in captured.out

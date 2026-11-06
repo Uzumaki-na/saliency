@@ -7,6 +7,7 @@ from non-parametric entropy bottleneck CDF table parameters (auxiliary loss with
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Iterable
 from typing import Any, NamedTuple
 
@@ -120,10 +121,7 @@ class CosineAnnealingWithWarmupLR(LRScheduler):
         """Calculates scheduled learning rate for each parameter group."""
         if self.warmup_epochs > 0 and self.last_epoch < self.warmup_epochs:
             alpha = self.last_epoch / float(self.warmup_epochs)
-            return [
-                self.warmup_start_lr + alpha * (base_lr - self.warmup_start_lr)
-                for base_lr in self.base_lrs
-            ]
+            return [self.warmup_start_lr + alpha * (base_lr - self.warmup_start_lr) for base_lr in self.base_lrs]
 
         if self.last_epoch >= self.T_max:
             return [self.eta_min for _ in self.base_lrs]
@@ -131,10 +129,7 @@ class CosineAnnealingWithWarmupLR(LRScheduler):
         decay_steps = self.T_max - self.warmup_epochs
         curr_step = self.last_epoch - self.warmup_epochs
         cosine_factor = 0.5 * (1.0 + math.cos(math.pi * curr_step / float(decay_steps)))
-        return [
-            self.eta_min + (base_lr - self.eta_min) * cosine_factor
-            for base_lr in self.base_lrs
-        ]
+        return [self.eta_min + (base_lr - self.eta_min) * cosine_factor for base_lr in self.base_lrs]
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
         """Restores scheduler state and synchronizes optimizer parameter group learning rates."""
@@ -245,12 +240,16 @@ class DualOptimizerHarness:
         """Steps all attached learning rate schedulers."""
         if self.main_scheduler is not None:
             if epoch is not None:
-                self.main_scheduler.step(epoch)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    self.main_scheduler.step(epoch)
             else:
                 self.main_scheduler.step()
         if self.aux_scheduler is not None:
             if epoch is not None:
-                self.aux_scheduler.step(epoch)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    self.aux_scheduler.step(epoch)
             else:
                 self.aux_scheduler.step()
 
