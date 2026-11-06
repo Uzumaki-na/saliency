@@ -6,6 +6,8 @@ Exports:
 - AnalysisTransform (g_a), SynthesisTransform (g_s): Main codec transforms.
 - HyperAnalysisTransform (h_a), HyperSynthesisTransform (h_s): Hyperprior transforms.
 - ModelOutput, ModelA: Baseline compression model and output container.
+- ModelB: Saliency-weighted implicit allocation baseline model.
+- load_pretrained_bmshj2018, remap_compressai_state_dict: Pretrained weight loading utilities.
 """
 
 from src.codec.entropy_models import (
@@ -27,6 +29,11 @@ from src.codec.model_a import (
     ModelOutput,
     SynthesisTransform,
 )
+from src.codec.model_b import (
+    ModelB,
+    load_pretrained_bmshj2018,
+    remap_compressai_state_dict,
+)
 
 __all__ = [
     "GDN",
@@ -39,7 +46,10 @@ __all__ = [
     "LowerBound",
     "LowerBoundFunction",
     "ModelA",
+    "ModelB",
     "ModelOutput",
     "NonNegativeParametrizer",
     "SynthesisTransform",
+    "load_pretrained_bmshj2018",
+    "remap_compressai_state_dict",
 ]
