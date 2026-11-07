@@ -2,6 +2,20 @@
 
 from __future__ import annotations
 
+from src.evaluation.bd_rate import (
+    BDComparisonResult,
+    BDRateMethod,
+    BootstrapResult,
+    FactorialContrastsResult,
+    MetricMode,
+    bootstrap_bd_metric,
+    bootstrap_bd_rate,
+    compute_bd_comparison,
+    compute_bd_metric,
+    compute_bd_rate,
+    enforce_monotonicity,
+    evaluate_factorial_contrasts,
+)
 from src.evaluation.causal import (
     BlockShuffleResult,
     CausalInterventionResult,
@@ -33,18 +47,30 @@ from src.evaluation.spatial_allocation import (
 )
 
 __all__ = [
+    "BDComparisonResult",
+    "BDRateMethod",
     "BlockShuffleResult",
+    "BootstrapResult",
     "CausalInterventionResult",
     "CausalRegressionResult",
     "CausalTransplantResult",
+    "FactorialContrastsResult",
+    "MetricMode",
     "PartialCorrelationResult",
     "SpatialBitMap",
     "TileSwapResult",
+    "bootstrap_bd_metric",
+    "bootstrap_bd_rate",
     "compute_allocation_ratio",
+    "compute_bd_comparison",
+    "compute_bd_metric",
+    "compute_bd_rate",
     "compute_partial_correlation",
     "compute_relative_allocation_ratio",
     "compute_spatial_bit_map",
     "compute_spatial_correlation",
+    "enforce_monotonicity",
+    "evaluate_factorial_contrasts",
     "evaluate_rar_across_models",
     "extract_top_percentile_mask",
     "fit_image_fixed_effects_regression",
