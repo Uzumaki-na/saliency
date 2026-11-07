@@ -308,12 +308,14 @@ class RateDistortionLoss(nn.Module):
                           + \lambda_{\text{aux}} \mathcal{L}_{\text{aux}}
 
     Where:
-        - :math:`R_{\text{bpp}} = \text{y\_bpp} + \text{z\_bpp}`
+        - :math:`R_{\text{bpp}} = \text{y\_bpp} + \text{z\_bpp} + \text{sidecar\_bpp}`
         - :math:`\text{y\_bpp} = -\frac{\sum \log_2(p_y)}{B \cdot H \cdot W}`
         - :math:`\text{z\_bpp} = -\frac{\sum \log_2(p_z)}{B \cdot H \cdot W}`
+        - :math:`\text{sidecar\_bpp}`: Transmitted sidecar bitrate (e.g. Model C-Transmitted).
         - :math:`D_{\text{saliency}}`: Saliency-weighted distortion with 0.2 background floor.
         - :math:`\text{mse\_loss}`: Unweighted mean squared error over the valid evaluation area.
-        - :math:`\mathcal{L}_{\text{aux}}`: Auxiliary saliency loss (masked BCE over valid cells).
+        - :math:`\mathcal{L}_{\text{aux}}`: Auxiliary saliency loss (masked BCE over valid cells; suppressed to 0.0
+          when sidecar_bpp is present since saliency is transmitted rather than predicted).
 
     Operates in strict FP32 outside autocast to prevent CDF underflow or loss quantization.
     """
@@ -346,12 +348,13 @@ class RateDistortionLoss(nn.Module):
         target_num_pixels: int | None = None,
         lmbda: float | None = None,
         saliency_weighting: bool | None = None,
+        sidecar_bpp: float | torch.Tensor | None = None,
     ) -> dict[str, Any]:
         r"""Evaluates rate-distortion loss and metric breakdown.
 
         Args:
             output: ModelOutput container, dict, or object containing 'x_hat', 'y_likelihoods',
-                and 'z_likelihoods' (or 'likelihoods' dictionary). Optionally contains 's_pred'.
+                and 'z_likelihoods' (or 'likelihoods' dictionary). Optionally contains 's_pred' or 'sidecar_bpp'.
             target: Ground truth target image tensor (B, C, H, W) or (C, H, W).
             s: Optional visual saliency map in [0, 1].
             valid_mask: Optional spatial valid mask for unpadded region evaluation.
@@ -362,16 +365,18 @@ class RateDistortionLoss(nn.Module):
                 to B * H * W of target.
             lmbda: Optional per-call rate-distortion trade-off parameter override.
             saliency_weighting: Optional per-call override for whether saliency weighting is applied.
+            sidecar_bpp: Optional sidecar bits-per-pixel override (e.g. for Model C-Transmitted).
 
         Returns:
             Dict containing:
                 - 'loss': Total rate-distortion loss.
-                - 'bpp_loss': Total bits-per-pixel (y_bpp + z_bpp).
+                - 'bpp_loss': Total bits-per-pixel (y_bpp + z_bpp + sidecar_bpp).
                 - 'y_bpp': Main latent bitrate.
                 - 'z_bpp': Hyper-latent bitrate.
+                - 'sidecar_bpp': Transmitted sidecar bitrate (tensor or 0.0).
                 - 'distortion': Saliency-weighted distortion in [0, 1] (or unweighted MSE if saliency_weighting=False).
                 - 'mse_loss': Unweighted mean squared error in [0, 1].
-                - 'aux_loss': Auxiliary saliency loss (or 0.0 if s_pred is None).
+                - 'aux_loss': Auxiliary saliency loss (or 0.0 if s_pred is None or sidecar_bpp is present).
                 - 'lambda_aux': Weight of the auxiliary loss term.
                 - 'saliency_weighting': Boolean flag indicating whether saliency weighting was enabled.
         """
@@ -388,17 +393,20 @@ class RateDistortionLoss(nn.Module):
             z_likelihoods = output.get("z_likelihoods")
             lik_container = output.get("likelihoods")
             pred_from_output = output.get("s_pred")
+            pred_sidecar_bpp = output.get("sidecar_bpp")
         else:
             x_hat = getattr(output, "x_hat", None)
             y_likelihoods = getattr(output, "y_likelihoods", None)
             z_likelihoods = getattr(output, "z_likelihoods", None)
             lik_container = getattr(output, "likelihoods", None)
             pred_from_output = getattr(output, "s_pred", None)
+            pred_sidecar_bpp = getattr(output, "sidecar_bpp", None)
 
         if x_hat is None:
             raise ValueError("output must contain 'x_hat' tensor")
 
         resolved_s_pred = s_pred if s_pred is not None else pred_from_output
+        resolved_sidecar_bpp = sidecar_bpp if sidecar_bpp is not None else pred_sidecar_bpp
         target_s = s if s is not None else saliency_map
         target_mask = valid_mask if valid_mask is not None else mask
 
@@ -450,6 +458,16 @@ class RateDistortionLoss(nn.Module):
             else:
                 bpp_loss = y_bpp + z_bpp
 
+            if resolved_sidecar_bpp is not None:
+                if isinstance(resolved_sidecar_bpp, torch.Tensor):
+                    sidecar_bpp_t = resolved_sidecar_bpp.to(device=target.device, dtype=torch.float32)
+                else:
+                    sidecar_bpp_t = torch.tensor(float(resolved_sidecar_bpp), device=target.device, dtype=torch.float32)
+            else:
+                sidecar_bpp_t = torch.tensor(0.0, device=target.device, dtype=torch.float32)
+
+            bpp_loss = bpp_loss + sidecar_bpp_t
+
             eff_saliency_weighting = self.saliency_weighting if saliency_weighting is None else bool(saliency_weighting)
 
             if eff_saliency_weighting:
@@ -473,8 +491,8 @@ class RateDistortionLoss(nn.Module):
                     valid_mask=target_mask,
                 )
 
-            # Evaluate auxiliary saliency loss when s_pred is present
-            if resolved_s_pred is not None:
+            # Evaluate auxiliary saliency loss when s_pred is present and not a sidecar model
+            if resolved_s_pred is not None and resolved_sidecar_bpp is None:
                 if target_s is None:
                     raise ValueError(
                         "Ground truth saliency map 's' must be provided when 's_pred' is present in output"
@@ -495,6 +513,7 @@ class RateDistortionLoss(nn.Module):
                 "bpp_loss": bpp_loss,
                 "y_bpp": y_bpp,
                 "z_bpp": z_bpp,
+                "sidecar_bpp": sidecar_bpp_t,
                 "distortion": distortion,
                 "mse_loss": mse_loss,
                 "aux_loss": aux_loss,
