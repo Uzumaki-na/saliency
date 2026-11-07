@@ -22,12 +22,18 @@ from __future__ import annotations
 
 import inspect
 import logging
+import math
 from dataclasses import dataclass
 from typing import Any
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+try:
+    from scipy import stats
+except ImportError:
+    stats = None
 
 from src.evaluation.spatial_allocation import (
     SpatialBitMap,
@@ -157,6 +163,70 @@ class CausalTransplantResult:
     ar_gain_on_donor_roi: float
     corr_baseline_vs_donor_saliency: float
     corr_transplanted_vs_donor_saliency: float
+
+
+@dataclass(frozen=True)
+class CausalRegressionResult:
+    """Results of image-fixed-effects spatial bit regression with clustered standard errors.
+
+    Model:
+        (bits_target - bits_baseline)_kij = alpha_k + beta_S * S_kij + beta_base * bits_baseline_kij + eps_kij
+
+    Attributes:
+        beta_s: Estimated regression coefficient for visual saliency map S.
+        beta_base: Estimated regression coefficient for baseline bits.
+        se_s: Cluster-robust standard error for beta_s (clustered by image).
+        se_base: Cluster-robust standard error for beta_base.
+        t_s: Student t-statistic for beta_s.
+        t_base: Student t-statistic for beta_base.
+        p_s: Two-tailed p-value for beta_s (testing H0: beta_s = 0).
+        p_base: Two-tailed p-value for beta_base (testing H0: beta_base = 0).
+        alpha_images: Estimated image-specific fixed effects alpha_k.
+        r2_within: Within-image coefficient of determination (R-squared).
+        r2_overall: Overall coefficient of determination across all valid cells.
+        num_images: Number of image clusters K.
+        num_cells_total: Total valid unpadded spatial cells evaluated N.
+        degrees_of_freedom: Residual degrees of freedom (N - K - 2).
+        hypothesis_confirmed: True if beta_s > 0.0 and p_s < 0.001.
+    """
+
+    beta_s: float
+    beta_base: float
+    se_s: float
+    se_base: float
+    t_s: float
+    t_base: float
+    p_s: float
+    p_base: float
+    alpha_images: list[float]
+    r2_within: float
+    r2_overall: float
+    num_images: int
+    num_cells_total: int
+    degrees_of_freedom: int
+    hypothesis_confirmed: bool
+
+
+@dataclass(frozen=True)
+class PartialCorrelationResult:
+    """Results of partial correlation analysis controlling for baseline bits.
+
+    Computes:
+        PartialCorr(S_pred, S | bits_A) = (r_XY - r_XZ * r_YZ) / sqrt((1 - r_XZ^2) * (1 - r_YZ^2))
+
+    Attributes:
+        partial_corr: First-order partial correlation in [-1.0, 1.0].
+        raw_corr_xy: Marginal Pearson correlation between X (S_pred) and Y (S).
+        raw_corr_xz: Marginal Pearson correlation between X (S_pred) and Z (bits_A).
+        raw_corr_yz: Marginal Pearson correlation between Y (S) and Z (bits_A).
+        num_cells: Number of valid unpadded spatial cells evaluated.
+    """
+
+    partial_corr: float
+    raw_corr_xy: float
+    raw_corr_xz: float
+    raw_corr_yz: float
+    num_cells: int
 
 
 def shuffle_spatial_blocks(
@@ -938,3 +1008,540 @@ def run_causal_transplant_intervention(
             )
     finally:
         model.train(was_training)
+
+
+def compute_partial_correlation(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    z: torch.Tensor,
+    *,
+    valid_mask: torch.Tensor | None = None,
+) -> PartialCorrelationResult:
+    """Computes first-order partial correlation PartialCorr(X, Y | Z) over valid cells.
+
+    Formula:
+        r_XY.Z = (r_XY - r_XZ * r_YZ) / sqrt((1 - r_XZ^2) * (1 - r_YZ^2))
+
+    Args:
+        x: First variable tensor (e.g., S_pred).
+        y: Second variable tensor (e.g., S).
+        z: Conditioning variable tensor (e.g., bits_A).
+        valid_mask: Optional boolean valid mask M_valid.
+
+    Returns:
+        PartialCorrelationResult containing partial and marginal correlations.
+    """
+    x_f = x.float().cpu()
+    y_f = y.float().cpu()
+    z_f = z.float().cpu()
+
+    # If inputs are already 1D vectors (e.g. from flattened cells across dataset)
+    if x_f.ndim == 1 and y_f.ndim == 1 and z_f.ndim == 1:
+        if not (x_f.numel() == y_f.numel() == z_f.numel()):
+            raise ValueError(f"1D vector length mismatch: x({x_f.numel()}), y({y_f.numel()}), z({z_f.numel()})")
+        if valid_mask is not None:
+            mask_flat = valid_mask.cpu().bool().flatten()
+            if mask_flat.numel() == x_f.numel():
+                vx = x_f[mask_flat]
+                vy = y_f[mask_flat]
+                vz = z_f[mask_flat]
+            else:
+                vx = x_f
+                vy = y_f
+                vz = z_f
+        else:
+            vx = x_f
+            vy = y_f
+            vz = z_f
+    else:
+        # Reduce multi-channel inputs (C > 1) to single channel
+        if x_f.ndim == 4 and x_f.shape[1] > 1:
+            x_f = x_f.mean(dim=1, keepdim=True)
+        elif x_f.ndim == 3 and x_f.shape[0] > 1:
+            x_f = x_f.mean(dim=0, keepdim=True).unsqueeze(0)
+        elif x_f.ndim == 2:
+            x_f = x_f.unsqueeze(0).unsqueeze(0)
+
+        if y_f.ndim == 4 and y_f.shape[1] > 1:
+            y_f = y_f.mean(dim=1, keepdim=True)
+        elif y_f.ndim == 3 and y_f.shape[0] > 1:
+            y_f = y_f.mean(dim=0, keepdim=True).unsqueeze(0)
+        elif y_f.ndim == 2:
+            y_f = y_f.unsqueeze(0).unsqueeze(0)
+
+        if z_f.ndim == 4 and z_f.shape[1] > 1:
+            z_f = z_f.mean(dim=1, keepdim=True)
+        elif z_f.ndim == 3 and z_f.shape[0] > 1:
+            z_f = z_f.mean(dim=0, keepdim=True).unsqueeze(0)
+        elif z_f.ndim == 2:
+            z_f = z_f.unsqueeze(0).unsqueeze(0)
+
+        # Align spatial dimensions to x if needed
+        target_hw = x_f.shape[-2:]
+        if y_f.shape[-2:] != target_hw:
+            y_f = F.interpolate(y_f, size=target_hw, mode="area")
+        if z_f.shape[-2:] != target_hw:
+            z_f = F.interpolate(z_f, size=target_hw, mode="area")
+
+        vm = valid_mask
+        if vm is not None:
+            vm = vm.cpu()
+            if vm.ndim == 2:
+                vm = vm.unsqueeze(0).unsqueeze(0)
+            elif vm.ndim == 3:
+                vm = vm.unsqueeze(1) if vm.shape[0] != 1 else vm.unsqueeze(0)
+            if vm.shape[-2:] != target_hw:
+                vm = F.interpolate(vm.float(), size=target_hw, mode="nearest").bool()
+            if vm.shape[0] == 1 and x_f.shape[0] > 1:
+                vm = vm.expand(x_f.shape[0], -1, -1, -1)
+
+            mask_bool = vm.bool()
+            vx = x_f[mask_bool].flatten()
+            vy = y_f[mask_bool].flatten()
+            vz = z_f[mask_bool].flatten()
+        else:
+            vx = x_f.flatten()
+            vy = y_f.flatten()
+            vz = z_f.flatten()
+
+    n_cells = vx.numel()
+    if n_cells < 3:
+        return PartialCorrelationResult(
+            partial_corr=0.0,
+            raw_corr_xy=0.0,
+            raw_corr_xz=0.0,
+            raw_corr_yz=0.0,
+            num_cells=n_cells,
+        )
+
+    def _pearson(a: torch.Tensor, b: torch.Tensor) -> float:
+        da = a - a.mean()
+        db = b - b.mean()
+        va = float((da**2).sum().item())
+        vb = float((db**2).sum().item())
+        if va < 1e-12 or vb < 1e-12:
+            return 0.0
+        r = float((da * db).sum().item()) / ((va * vb) ** 0.5)
+        return max(-1.0, min(1.0, r))
+
+    r_xy = _pearson(vx, vy)
+    r_xz = _pearson(vx, vz)
+    r_yz = _pearson(vy, vz)
+
+    # Compute partial correlation
+    denom_sq = (1.0 - r_xz**2) * (1.0 - r_yz**2)
+    if denom_sq <= 1e-12:
+        partial_r = 0.0
+    else:
+        denom = denom_sq**0.5
+        numer = r_xy - r_xz * r_yz
+        partial_r = max(-1.0, min(1.0, numer / denom))
+
+    return PartialCorrelationResult(
+        partial_corr=partial_r,
+        raw_corr_xy=r_xy,
+        raw_corr_xz=r_xz,
+        raw_corr_yz=r_yz,
+        num_cells=n_cells,
+    )
+
+
+def fit_image_fixed_effects_regression(
+    y_list: list[torch.Tensor],
+    x_mat_list: list[torch.Tensor],
+) -> CausalRegressionResult:
+    """Estimates panel regression with absorbed image fixed effects and clustered covariance.
+
+    Model:
+        y_kij = alpha_k + X_kij^T beta + eps_kij
+
+    Estimates beta using Frisch-Waugh-Lovell within-transformation (demeaning per image k),
+    absorbs alpha_k, and calculates cluster-robust covariance (Liang-Zeger sandwich) clustered
+    by image. Falls back to cell-level HC1 robust covariance when K=1.
+
+    Args:
+        y_list: List of 1D tensors of dependent variable (e.g. bits_target - bits_baseline), one per image.
+        x_mat_list: List of 2D tensors of regressors (N_k, P), one per image (e.g. columns [S, bits_baseline]).
+
+    Returns:
+        CausalRegressionResult containing beta estimates, clustered SEs, t-stats, p-values, and R^2.
+    """
+    if len(y_list) != len(x_mat_list):
+        raise ValueError(f"Mismatch: len(y_list)={len(y_list)} vs len(x_mat_list)={len(x_mat_list)}")
+    if len(y_list) == 0:
+        raise ValueError("Cannot fit regression on empty list of images.")
+
+    # Filter out empty images
+    valid_pairs = []
+    for y_k, x_k in zip(y_list, x_mat_list, strict=True):
+        y_t = y_k.cpu().to(dtype=torch.float64).flatten()
+        x_t = x_k.cpu().to(dtype=torch.float64)
+        if x_t.ndim == 1:
+            x_t = x_t.unsqueeze(1)
+        if y_t.numel() > 0 and x_t.shape[0] == y_t.numel():
+            valid_pairs.append((y_t, x_t))
+
+    if len(valid_pairs) == 0:
+        raise ValueError("All provided images have 0 valid spatial cells.")
+
+    num_images = len(valid_pairs)
+    p_vars = valid_pairs[0][1].shape[1]
+    num_cells_total = sum(y_t.numel() for y_t, _ in valid_pairs)
+
+    # Degrees of freedom
+    if num_images > 1:
+        df_cluster = num_images - 1
+        df_resid = max(1, num_cells_total - num_images - p_vars)
+        c_adj = (num_images / (num_images - 1)) * (max(1, num_cells_total - 1) / df_resid)
+    else:
+        df_cluster = max(1, num_cells_total - 1 - p_vars)
+        df_resid = df_cluster
+        c_adj = num_cells_total / df_resid
+
+    # Step 1: Compute image-level means and demean (Frisch-Waugh-Lovell within transformation)
+    demeaned_data = []
+    a_mat = torch.zeros((p_vars, p_vars), dtype=torch.float64)
+    b_vec = torch.zeros(p_vars, dtype=torch.float64)
+    col_within_var = torch.zeros(p_vars, dtype=torch.float64)
+
+    total_y_sum = 0.0
+
+    for y_t, x_t in valid_pairs:
+        total_y_sum += float(y_t.sum().item())
+        y_mean = y_t.mean()
+        x_mean = x_t.mean(dim=0)
+
+        tilde_y = y_t - y_mean
+        tilde_x = x_t - x_mean
+
+        a_mat += tilde_x.T @ tilde_x
+        b_vec += tilde_x.T @ tilde_y
+        col_within_var += torch.sum(tilde_x**2, dim=0)
+
+        demeaned_data.append((y_t, x_t, y_mean, x_mean, tilde_y, tilde_x))
+
+    # Step 2: Solve within OLS normal equations
+    # Use pseudo-inverse for numerical robustness against near-collinear regressors
+    a_inv = torch.linalg.pinv(a_mat)
+    beta_hat = a_inv @ b_vec
+
+    # Step 3: Recover image fixed effects alpha_k, calculate residuals and covariance meat B
+    alpha_images: list[float] = []
+    rss = 0.0
+    tss_within = 0.0
+    tss_overall = 0.0
+
+    y_global_mean = total_y_sum / max(1, num_cells_total)
+
+    if num_images == 1:
+        # Cell-level HC1 robust covariance fallback when only 1 image cluster exists
+        y_t, _x_t, y_mean, x_mean, tilde_y, tilde_x = demeaned_data[0]
+        alpha_k = float((y_mean - x_mean @ beta_hat).item())
+        alpha_images.append(alpha_k)
+
+        eps_1 = tilde_y - tilde_x @ beta_hat
+        rss = float((eps_1**2).sum().item())
+        tss_within = float((tilde_y**2).sum().item())
+        tss_overall = float(((y_t - y_global_mean) ** 2).sum().item())
+
+        weighted_x = tilde_x * eps_1.unsqueeze(1)
+        b_meat = weighted_x.T @ weighted_x
+    else:
+        # Multi-cluster Liang-Zeger sandwich
+        b_meat = torch.zeros((p_vars, p_vars), dtype=torch.float64)
+        for y_t, _x_t, y_mean, x_mean, tilde_y, tilde_x in demeaned_data:
+            alpha_k = float((y_mean - x_mean @ beta_hat).item())
+            alpha_images.append(alpha_k)
+
+            # Residuals
+            eps_k = tilde_y - tilde_x @ beta_hat
+            rss += float((eps_k**2).sum().item())
+            tss_within += float((tilde_y**2).sum().item())
+            tss_overall += float(((y_t - y_global_mean) ** 2).sum().item())
+
+            # Cluster score vector s_k = tilde_x^T eps_k
+            score_k = tilde_x.T @ eps_k
+            b_meat += torch.outer(score_k, score_k)
+
+    # Step 4: Cluster-robust variance-covariance matrix (Liang-Zeger sandwich)
+    v_cluster = c_adj * (a_inv @ b_meat @ a_inv)
+    diag_v = torch.diagonal(v_cluster)
+    se_vec = torch.sqrt(torch.clamp(diag_v, min=0.0))
+
+    t_stats = torch.zeros(p_vars, dtype=torch.float64)
+    p_values: list[float] = []
+
+    for j in range(p_vars):
+        if float(col_within_var[j].item()) < 1e-12:
+            # Unidentifiable regressor (no within-image variation)
+            se_vec[j] = float("nan")
+            t_stats[j] = 0.0
+            p_values.append(1.0)
+        else:
+            se_j = float(se_vec[j].item())
+            if se_j > 1e-12:
+                t_val = float((beta_hat[j] / se_j).item())
+                t_stats[j] = t_val
+                if stats is not None:
+                    pval = 2.0 * float(stats.t.sf(abs(t_val), df=df_cluster))
+                else:
+                    pval = math.erfc(abs(t_val) / math.sqrt(2.0))
+                p_values.append(max(0.0, min(1.0, pval)))
+            else:
+                se_vec[j] = float("nan")
+                t_stats[j] = 0.0
+                p_values.append(1.0)
+
+    # Step 5: Compute R-squared
+    r2_within = max(0.0, min(1.0, 1.0 - rss / max(1e-12, tss_within)))
+    r2_overall = max(0.0, min(1.0, 1.0 - rss / max(1e-12, tss_overall)))
+
+    beta_s = float(beta_hat[0].item())
+    beta_base = float(beta_hat[1].item()) if p_vars > 1 else 0.0
+    se_s = float(se_vec[0].item())
+    se_base = float(se_vec[1].item()) if p_vars > 1 else 0.0
+    t_s = float(t_stats[0].item())
+    t_base = float(t_stats[1].item()) if p_vars > 1 else 0.0
+    p_s = p_values[0]
+    p_base = p_values[1] if p_vars > 1 else 1.0
+
+    hypothesis_confirmed = bool(not math.isnan(se_s) and beta_s > 0.0 and p_s < 0.001)
+
+    return CausalRegressionResult(
+        beta_s=beta_s,
+        beta_base=beta_base,
+        se_s=se_s,
+        se_base=se_base,
+        t_s=t_s,
+        t_base=t_base,
+        p_s=p_s,
+        p_base=p_base,
+        alpha_images=alpha_images,
+        r2_within=r2_within,
+        r2_overall=r2_overall,
+        num_images=num_images,
+        num_cells_total=num_cells_total,
+        degrees_of_freedom=df_resid,
+        hypothesis_confirmed=hypothesis_confirmed,
+    )
+
+
+def run_causal_regression(
+    bits_target: torch.Tensor | list[torch.Tensor] | SpatialBitMap,
+    bits_baseline: torch.Tensor | list[torch.Tensor] | SpatialBitMap,
+    saliency: torch.Tensor | list[torch.Tensor],
+    *,
+    valid_mask: torch.Tensor | list[torch.Tensor] | None = None,
+) -> CausalRegressionResult:
+    """Executes image-fixed-effects spatial bit regression: (bits_T - bits_B) = alpha + beta_S * S + beta_B * bits_B.
+
+    Args:
+        bits_target: Spatial bits tensor for target model (e.g. Model C or D) or SpatialBitMap.
+        bits_baseline: Spatial bits tensor for baseline model (Model A) or SpatialBitMap.
+        saliency: Saliency map tensor(s) in [0, 1].
+        valid_mask: Optional valid latent mask(s).
+
+    Returns:
+        CausalRegressionResult containing regression coefficients, clustered SEs, and hypothesis status.
+    """
+    resolved_mask = valid_mask
+    if isinstance(bits_target, SpatialBitMap):
+        if resolved_mask is None and bits_target.valid_mask is not None:
+            resolved_mask = bits_target.valid_mask
+        target_t = bits_target.y_bits
+    else:
+        target_t = bits_target
+
+    if isinstance(bits_baseline, SpatialBitMap):
+        if resolved_mask is None and bits_baseline.valid_mask is not None:
+            resolved_mask = bits_baseline.valid_mask
+        baseline_t = bits_baseline.y_bits
+    else:
+        baseline_t = bits_baseline
+
+    def _to_2d_list(item: torch.Tensor | list[torch.Tensor]) -> list[torch.Tensor]:
+        if isinstance(item, list):
+            res = []
+            for sub in item:
+                res.extend(_to_2d_list(sub))
+            return res
+        if item.ndim == 2:
+            return [item]
+        if item.ndim == 3:
+            return [item[i] for i in range(item.shape[0])]
+        if item.ndim == 4:
+            return [item[i, 0] if item.shape[1] == 1 else item[i].mean(dim=0) for i in range(item.shape[0])]
+        raise ValueError(f"Unsupported tensor dimension {item.ndim}D")
+
+    t_list = _to_2d_list(target_t)
+    b_list = _to_2d_list(baseline_t)
+    s_list = _to_2d_list(saliency)
+    vm_list = _to_2d_list(resolved_mask) if resolved_mask is not None else None
+
+    num_images = len(t_list)
+    if len(b_list) == 1 and num_images > 1:
+        b_list = [b_list[0] for _ in range(num_images)]
+    if len(s_list) == 1 and num_images > 1:
+        s_list = [s_list[0] for _ in range(num_images)]
+    if vm_list is not None and len(vm_list) == 1 and num_images > 1:
+        vm_list = [vm_list[0] for _ in range(num_images)]
+
+    if not (len(t_list) == len(b_list) == len(s_list)):
+        raise ValueError(
+            f"Image count mismatch: target ({len(t_list)}), baseline ({len(b_list)}), saliency ({len(s_list)})"
+        )
+
+    y_list: list[torch.Tensor] = []
+    x_mat_list: list[torch.Tensor] = []
+
+    for k in range(num_images):
+        t_k = t_list[k].float().cpu()
+        b_k = b_list[k].float().cpu()
+        s_k = s_list[k].float().cpu()
+
+        target_hw = t_k.shape[-2:]
+        if b_k.shape[-2:] != target_hw:
+            b_k = F.interpolate(b_k.view(1, 1, *b_k.shape[-2:]), size=target_hw, mode="area").view(target_hw)
+        if s_k.shape[-2:] != target_hw:
+            s_k = F.interpolate(s_k.view(1, 1, *s_k.shape[-2:]), size=target_hw, mode="area").view(target_hw)
+
+        if vm_list is not None:
+            vm_k = vm_list[k].cpu()
+            if vm_k.shape[-2:] != target_hw:
+                vm_k = (
+                    F.interpolate(vm_k.float().view(1, 1, *vm_k.shape[-2:]), size=target_hw, mode="nearest")
+                    .bool()
+                    .view(target_hw)
+                )
+            mask = vm_k.bool()
+            y_k = (t_k - b_k)[mask].flatten()
+            s_vals = s_k[mask].flatten()
+            b_vals = b_k[mask].flatten()
+        else:
+            y_k = (t_k - b_k).flatten()
+            s_vals = s_k.flatten()
+            b_vals = b_k.flatten()
+
+        if y_k.numel() > 0:
+            x_k = torch.stack([s_vals, b_vals], dim=1)
+            y_list.append(y_k)
+            x_mat_list.append(x_k)
+
+    return fit_image_fixed_effects_regression(y_list, x_mat_list)
+
+
+def run_causal_partial_correlation(
+    s_pred: torch.Tensor | list[torch.Tensor],
+    s_ref: torch.Tensor | list[torch.Tensor],
+    bits_baseline: torch.Tensor | list[torch.Tensor] | SpatialBitMap,
+    *,
+    valid_mask: torch.Tensor | list[torch.Tensor] | None = None,
+    demean_per_image: bool = True,
+) -> PartialCorrelationResult:
+    """Executes partial correlation analysis: PartialCorr(S_pred, S_ref | bits_baseline).
+
+    Controls for baseline bit density to verify that saliency representation fidelity is not
+    confounded by texture complexity.
+
+    Args:
+        s_pred: Predicted visual saliency map(s).
+        s_ref: Reference ground-truth visual saliency map(s).
+        bits_baseline: Baseline model spatial bits or SpatialBitMap.
+        valid_mask: Optional valid latent mask.
+        demean_per_image: If True, centers variables per-image before concatenation to remove
+            cross-image mean offsets.
+
+    Returns:
+        PartialCorrelationResult containing partial and marginal correlation coefficients.
+    """
+    resolved_mask = valid_mask
+    if isinstance(bits_baseline, SpatialBitMap):
+        if resolved_mask is None and bits_baseline.valid_mask is not None:
+            resolved_mask = bits_baseline.valid_mask
+        base_t = bits_baseline.y_bits
+    else:
+        base_t = bits_baseline
+
+    def _to_2d_list(item: torch.Tensor | list[torch.Tensor]) -> list[torch.Tensor]:
+        if isinstance(item, list):
+            res = []
+            for sub in item:
+                res.extend(_to_2d_list(sub))
+            return res
+        if item.ndim == 2:
+            return [item]
+        if item.ndim == 3:
+            return [item[i] for i in range(item.shape[0])]
+        if item.ndim == 4:
+            return [item[i, 0] if item.shape[1] == 1 else item[i].mean(dim=0) for i in range(item.shape[0])]
+        raise ValueError(f"Unsupported tensor dimension {item.ndim}D")
+
+    sp_list = _to_2d_list(s_pred)
+    sr_list = _to_2d_list(s_ref)
+    bb_list = _to_2d_list(base_t)
+    vm_list = _to_2d_list(resolved_mask) if resolved_mask is not None else None
+
+    num_images = len(sp_list)
+    if len(sr_list) == 1 and num_images > 1:
+        sr_list = [sr_list[0] for _ in range(num_images)]
+    if len(bb_list) == 1 and num_images > 1:
+        bb_list = [bb_list[0] for _ in range(num_images)]
+    if vm_list is not None and len(vm_list) == 1 and num_images > 1:
+        vm_list = [vm_list[0] for _ in range(num_images)]
+
+    all_x: list[torch.Tensor] = []
+    all_y: list[torch.Tensor] = []
+    all_z: list[torch.Tensor] = []
+
+    for k in range(num_images):
+        sp_k = sp_list[k].float().cpu()
+        sr_k = sr_list[k].float().cpu()
+        bb_k = bb_list[k].float().cpu()
+
+        target_hw = sp_k.shape[-2:]
+        if sr_k.shape[-2:] != target_hw:
+            sr_k = F.interpolate(sr_k.view(1, 1, *sr_k.shape[-2:]), size=target_hw, mode="area").view(target_hw)
+        if bb_k.shape[-2:] != target_hw:
+            bb_k = F.interpolate(bb_k.view(1, 1, *bb_k.shape[-2:]), size=target_hw, mode="area").view(target_hw)
+
+        if vm_list is not None:
+            vm_k = vm_list[k].cpu()
+            if vm_k.shape[-2:] != target_hw:
+                vm_k = (
+                    F.interpolate(vm_k.float().view(1, 1, *vm_k.shape[-2:]), size=target_hw, mode="nearest")
+                    .bool()
+                    .view(target_hw)
+                )
+            mask = vm_k.bool()
+            x_vals = sp_k[mask].flatten()
+            y_vals = sr_k[mask].flatten()
+            z_vals = bb_k[mask].flatten()
+        else:
+            x_vals = sp_k.flatten()
+            y_vals = sr_k.flatten()
+            z_vals = bb_k.flatten()
+
+        if x_vals.numel() > 0:
+            if demean_per_image and x_vals.numel() > 1:
+                all_x.append(x_vals - x_vals.mean())
+                all_y.append(y_vals - y_vals.mean())
+                all_z.append(z_vals - z_vals.mean())
+            else:
+                all_x.append(x_vals)
+                all_y.append(y_vals)
+                all_z.append(z_vals)
+
+    if len(all_x) == 0:
+        return PartialCorrelationResult(
+            partial_corr=0.0,
+            raw_corr_xy=0.0,
+            raw_corr_xz=0.0,
+            raw_corr_yz=0.0,
+            num_cells=0,
+        )
+
+    cat_x = torch.cat(all_x)
+    cat_y = torch.cat(all_y)
+    cat_z = torch.cat(all_z)
+
+    return compute_partial_correlation(cat_x, cat_y, cat_z)
