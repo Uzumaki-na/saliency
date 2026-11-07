@@ -17,6 +17,7 @@ Exports:
 - compute_bpp: Bits-per-pixel evaluation from likelihoods or byte counts.
 - compute_mse: Mean squared error evaluation.
 - compute_correlation_coefficient: Pearson CC between predicted and target saliency.
+- compute_hyperprior_overhead: Calculates hyperprior bitrate overhead Delta BPP_z between models.
 - compute_kl_divergence: Spatial distribution KL divergence over valid mask.
 - compute_auc_judd: AUC-Judd ROC evaluation.
 - evaluate_representation_quality: Representation quality gate evaluation.
@@ -27,6 +28,7 @@ from __future__ import annotations
 from src.training.loss import (
     RateDistortionLoss,
     auxiliary_saliency_loss,
+    compute_hyperprior_overhead,
     saliency_weighted_distortion,
 )
 from src.training.optimizer import (
@@ -60,6 +62,7 @@ __all__ = [
     "compute_auc_judd",
     "compute_bpp",
     "compute_correlation_coefficient",
+    "compute_hyperprior_overhead",
     "compute_kl_divergence",
     "compute_mse",
     "compute_msssim",

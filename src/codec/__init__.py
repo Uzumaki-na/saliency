@@ -8,9 +8,11 @@ Exports:
 - ModelOutput, ModelA: Baseline compression model and output container.
 - ModelB: Saliency-weighted implicit allocation baseline model.
 - ModelC, ModelCOutput, DualHeadHyperSynthesisTransform: Explicit adaptive allocation model.
+- ModelD: Mechanism-only architecture control variant.
 - load_pretrained_bmshj2018, remap_compressai_state_dict: Pretrained weight loading utilities.
 - compute_log_delta, compute_effective_log_scale, quantize_ste_1_32, build_delta_table,
   lookup_delta_from_table, quantize_latents_adaptive, DELTA_TABLE_129: Saliency allocation engine.
+- compute_hyperprior_overhead: Hyperprior bitrate overhead Delta BPP_z calculation.
 """
 
 from src.codec.allocation import (
@@ -52,6 +54,10 @@ from src.codec.model_c import (
     ModelC,
     ModelCOutput,
 )
+from src.codec.model_d import (
+    ModelD,
+    compute_hyperprior_overhead,
+)
 
 __all__ = [
     "DELTA_TABLE_129",
@@ -69,12 +75,14 @@ __all__ = [
     "ModelB",
     "ModelC",
     "ModelCOutput",
+    "ModelD",
     "ModelOutput",
     "NonNegativeParametrizer",
     "STE1Over32Quantizer",
     "SynthesisTransform",
     "build_delta_table",
     "compute_effective_log_scale",
+    "compute_hyperprior_overhead",
     "compute_log_delta",
     "load_pretrained_bmshj2018",
     "lookup_delta_from_table",

@@ -6,7 +6,8 @@ This module implements:
   with an explicit 0.2 background floor (S' = 0.2 + 0.8 * S), valid masking, and strict FP32 precision.
 - RateDistortionLoss: CompressAI-compatible rate-distortion loss module balancing
   bitrate (bits per pixel), scaled distortion (loss = bpp_loss + lambda * 255^2 * distortion),
-  and auxiliary saliency loss (lambda_aux * aux_loss).
+  and auxiliary saliency loss (lambda_aux * aux_loss), with optional uniform MSE distortion control.
+- compute_hyperprior_overhead: Calculates hyperprior bitrate overhead Delta BPP_z between models.
 """
 
 from __future__ import annotations
@@ -317,7 +318,12 @@ class RateDistortionLoss(nn.Module):
     Operates in strict FP32 outside autocast to prevent CDF underflow or loss quantization.
     """
 
-    def __init__(self, lmbda: float = 0.01, lambda_aux: float = 0.1) -> None:
+    def __init__(
+        self,
+        lmbda: float = 0.01,
+        lambda_aux: float = 0.1,
+        saliency_weighting: bool = True,
+    ) -> None:
         super().__init__()
         if lmbda < 0.0:
             raise ValueError(f"lmbda must be non-negative, got {lmbda}")
@@ -325,6 +331,7 @@ class RateDistortionLoss(nn.Module):
             raise ValueError(f"lambda_aux must be non-negative, got {lambda_aux}")
         self.lmbda = float(lmbda)
         self.lambda_aux = float(lambda_aux)
+        self.saliency_weighting = bool(saliency_weighting)
 
     def forward(
         self,
@@ -338,7 +345,8 @@ class RateDistortionLoss(nn.Module):
         mask: torch.Tensor | None = None,
         target_num_pixels: int | None = None,
         lmbda: float | None = None,
-    ) -> dict[str, torch.Tensor]:
+        saliency_weighting: bool | None = None,
+    ) -> dict[str, Any]:
         r"""Evaluates rate-distortion loss and metric breakdown.
 
         Args:
@@ -353,6 +361,7 @@ class RateDistortionLoss(nn.Module):
             target_num_pixels: Optional explicit pixel count for bpp normalization. Defaults
                 to B * H * W of target.
             lmbda: Optional per-call rate-distortion trade-off parameter override.
+            saliency_weighting: Optional per-call override for whether saliency weighting is applied.
 
         Returns:
             Dict containing:
@@ -360,10 +369,11 @@ class RateDistortionLoss(nn.Module):
                 - 'bpp_loss': Total bits-per-pixel (y_bpp + z_bpp).
                 - 'y_bpp': Main latent bitrate.
                 - 'z_bpp': Hyper-latent bitrate.
-                - 'distortion': Saliency-weighted distortion in [0, 1].
+                - 'distortion': Saliency-weighted distortion in [0, 1] (or unweighted MSE if saliency_weighting=False).
                 - 'mse_loss': Unweighted mean squared error in [0, 1].
                 - 'aux_loss': Auxiliary saliency loss (or 0.0 if s_pred is None).
                 - 'lambda_aux': Weight of the auxiliary loss term.
+                - 'saliency_weighting': Boolean flag indicating whether saliency weighting was enabled.
         """
         # Support swapped argument order if target is passed first
         if isinstance(output, torch.Tensor) and not isinstance(target, torch.Tensor):
@@ -440,19 +450,28 @@ class RateDistortionLoss(nn.Module):
             else:
                 bpp_loss = y_bpp + z_bpp
 
-            distortion = saliency_weighted_distortion(
-                target,
-                x_hat,
-                s=target_s,
-                valid_mask=target_mask,
-            )
+            eff_saliency_weighting = self.saliency_weighting if saliency_weighting is None else bool(saliency_weighting)
 
-            mse_loss = saliency_weighted_distortion(
-                target,
-                x_hat,
-                s=None,
-                valid_mask=target_mask,
-            )
+            if eff_saliency_weighting:
+                distortion = saliency_weighted_distortion(
+                    target,
+                    x_hat,
+                    s=target_s,
+                    valid_mask=target_mask,
+                )
+                mse_loss = saliency_weighted_distortion(
+                    target,
+                    x_hat,
+                    s=None,
+                    valid_mask=target_mask,
+                )
+            else:
+                distortion = mse_loss = saliency_weighted_distortion(
+                    target,
+                    x_hat,
+                    s=None,
+                    valid_mask=target_mask,
+                )
 
             # Evaluate auxiliary saliency loss when s_pred is present
             if resolved_s_pred is not None:
@@ -480,11 +499,61 @@ class RateDistortionLoss(nn.Module):
                 "mse_loss": mse_loss,
                 "aux_loss": aux_loss,
                 "lambda_aux": torch.tensor(self.lambda_aux, device=target.device, dtype=torch.float32),
+                "saliency_weighting": eff_saliency_weighting,
             }
+
+
+def compute_hyperprior_overhead(
+    z_bpp_model: float | torch.Tensor,
+    z_bpp_baseline: float | torch.Tensor,
+    *,
+    as_tensor: bool = False,
+) -> float | torch.Tensor:
+    r"""Computes hyperprior bitrate overhead of an adaptive model relative to a baseline.
+
+    .. math::
+        \Delta \text{BPP}_z = \text{BPP}_z(\text{Model}) - \text{BPP}_z(\text{Baseline})
+
+    Quantifies the bitrate overhead incurred by transmitting hyperprior latents in adaptive
+    models (e.g. Model D or Model C) relative to standard uniform baselines (e.g. Model A).
+
+    Args:
+        z_bpp_model: Hyperprior bits-per-pixel of the evaluated model (float or tensor).
+        z_bpp_baseline: Hyperprior bits-per-pixel of the baseline model (float or tensor).
+        as_tensor: If True, returns a scalar FP32 torch.Tensor; otherwise returns a Python float.
+
+    Returns:
+        float | torch.Tensor: Bitrate overhead Delta BPP_z.
+    """
+    if isinstance(z_bpp_model, torch.Tensor) or isinstance(z_bpp_baseline, torch.Tensor):
+        target_device = z_bpp_model.device if isinstance(z_bpp_model, torch.Tensor) else z_bpp_baseline.device
+        m_t = (
+            z_bpp_model.to(device=target_device, dtype=torch.float32)
+            if isinstance(z_bpp_model, torch.Tensor)
+            else torch.tensor(float(z_bpp_model), dtype=torch.float32, device=target_device)
+        )
+        b_t = (
+            z_bpp_baseline.to(device=target_device, dtype=torch.float32)
+            if isinstance(z_bpp_baseline, torch.Tensor)
+            else torch.tensor(float(z_bpp_baseline), dtype=torch.float32, device=target_device)
+        )
+        if m_t.numel() == 0 or b_t.numel() == 0:
+            raise ValueError("Hyperprior BPP tensors cannot be empty")
+
+        diff_tensor = m_t - b_t
+        if as_tensor:
+            return diff_tensor
+        return float(diff_tensor.item() if diff_tensor.numel() == 1 else diff_tensor.mean().item())
+
+    diff_float = float(z_bpp_model) - float(z_bpp_baseline)
+    if as_tensor:
+        return torch.tensor(diff_float, dtype=torch.float32)
+    return diff_float
 
 
 __all__ = [
     "RateDistortionLoss",
     "auxiliary_saliency_loss",
+    "compute_hyperprior_overhead",
     "saliency_weighted_distortion",
 ]

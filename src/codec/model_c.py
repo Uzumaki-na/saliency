@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import torch
 import torch.nn as nn
@@ -194,6 +194,8 @@ class ModelC(ModelA):
     - Detached y for h_a: Auxiliary saliency gradients from s_pred flow into h_a but are cut before g_a.
     """
 
+    model_type: str = "C"
+
     def __init__(
         self,
         in_channels: int = 3,
@@ -369,7 +371,9 @@ class ModelC(ModelA):
                     error_msgs.append(f"Missing key(s) in state_dict: {', '.join(sorted(real_missing))}.")
                 if unexpected_keys:
                     error_msgs.append(f"Unexpected key(s) in state_dict: {', '.join(sorted(unexpected_keys))}.")
-                raise RuntimeError("Error(s) in loading state_dict for ModelC:\n\t" + "\n\t".join(error_msgs))
+                raise RuntimeError(
+                    f"Error(s) in loading state_dict for {self.__class__.__name__}:\n\t" + "\n\t".join(error_msgs)
+                )
 
         result = super().load_state_dict(remapped, strict=False, assign=assign)
 
@@ -385,7 +389,7 @@ class ModelC(ModelA):
         strict: bool = True,
         device: str | torch.device | None = None,
         **kwargs: Any,
-    ) -> ModelC:
+    ) -> Self:
         r"""Constructs a ModelC instance and loads weights from a checkpoint or state dict."""
         model = cls(**kwargs)
         if isinstance(checkpoint, (str, Path)):
