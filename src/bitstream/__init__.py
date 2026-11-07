@@ -8,14 +8,18 @@ Exports:
 """
 
 from src.bitstream.container import (
+    FLAG_HAS_SIDECAR,
     SancContainer,
+    create_model,
     decode_image,
     encode_image,
     load_image_tensor,
 )
 
 __all__ = [
+    "FLAG_HAS_SIDECAR",
     "SancContainer",
+    "create_model",
     "decode_image",
     "encode_image",
     "load_image_tensor",

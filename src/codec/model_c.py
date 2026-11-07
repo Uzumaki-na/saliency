@@ -34,6 +34,9 @@ from src.codec.model_b import (
 
 logger = logging.getLogger(__name__)
 
+# Model ID constant for Model C (0x02)
+MODEL_ID_C: int = 2
+
 
 class DualHeadHyperSynthesisTransform(nn.Module):
     r"""Dual-head hyper-synthesis transform :math:`h_s` mapping quantized hyper-latents :math:`\hat{z}`
@@ -195,6 +198,7 @@ class ModelC(ModelA):
     """
 
     model_type: str = "C"
+    model_id: int = MODEL_ID_C
 
     def __init__(
         self,

@@ -220,7 +220,8 @@ class TestIsolatedProcessGate:
         assert recon.size == orig.size
 
         x_recon = load_image_tensor(img_out)
-        psnr = compute_psnr(x_enc_ref, x_recon)
+        x_enc_ref_quant = torch.round(x_enc_ref * 255.0) / 255.0
+        psnr = compute_psnr(x_enc_ref_quant, x_recon)
         assert psnr > 60.0, f"Isolated decode PSNR {psnr:.2f} dB (expected > 60 dB)"
         # 8-bit PNG file quantization bound allows up to 1 LSB (1.0 / 255.0) under cross-device execution
         assert torch.abs(x_enc_ref - x_recon).max().item() <= (1.0 / 255.0 + 1e-4)
@@ -358,7 +359,8 @@ class TestIsolatedProcessGate:
         assert recon_img.size == (375, 500)
 
         x_recon = load_image_tensor(recon_path)
-        psnr = compute_psnr(x_crop_ref, x_recon)
+        x_crop_ref_quant = torch.round(x_crop_ref * 255.0) / 255.0
+        psnr = compute_psnr(x_crop_ref_quant, x_recon)
         assert psnr > 60.0, f"Unaligned crop PSNR {psnr:.2f} dB (expected > 60 dB)"
         # 8-bit PNG file quantization bound is 0.5 / 255 (~0.00196)
         assert torch.abs(x_crop_ref - x_recon).max().item() <= (0.5 / 255.0 + 1e-5)

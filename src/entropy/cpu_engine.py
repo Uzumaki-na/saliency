@@ -141,12 +141,16 @@ class DeterministicCPUEngine:
         self,
         z_hat: torch.Tensor,
         log_delta: torch.Tensor | None = None,
+        valid_mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         r"""Executes deterministic parameter derivation from quantized hyper-latents z_hat.
+
+        Supports both single-head (Model A, B, C-Transmitted) and dual-head (Model C, D) hyper-synthesis.
 
         Args:
             z_hat: Quantized hyper-latents tensor (B, 128, H, W) or (128, H, W).
             log_delta: Optional adaptive log-quantization step tensor.
+            valid_mask: Optional spatial valid mask for unpadded region evaluation.
 
         Returns:
             Tuple of:
@@ -166,14 +170,88 @@ class DeterministicCPUEngine:
                 raise ValueError(msg)
 
             z_cpu = z_input.detach().cpu().float()
-            log_sigma = self.h_s(z_cpu)
-            scale_indexes = self.compute_scale_indexes(log_sigma, log_delta=log_delta)
+            hs_out = self.h_s(z_cpu)
+            if isinstance(hs_out, tuple):
+                log_sigma, s_pred = hs_out
+            else:
+                log_sigma, s_pred = hs_out, None
+
+            eff_log_delta = log_delta
+            if eff_log_delta is None and s_pred is not None:
+                from src.codec.allocation import compute_log_delta
+
+                eff_log_delta, _ = compute_log_delta(s_pred, valid_mask=valid_mask)
+
+            scale_indexes = self.compute_scale_indexes(log_sigma, log_delta=eff_log_delta)
 
             if orig_dim == 3:
                 log_sigma = log_sigma.squeeze(0)
                 scale_indexes = scale_indexes.squeeze(0)
 
         return log_sigma, scale_indexes
+
+    def forward_allocation(
+        self,
+        z_hat: torch.Tensor,
+        valid_mask: torch.Tensor | None = None,
+        log_delta: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]:
+        r"""Executes deterministic parameter and explicit allocation derivation.
+
+        For dual-head hyper-synthesis (Model C / Model D):
+            Derives log_sigma and s_pred synchronously on CPU in FP32.
+            If log_delta is None, derives log_delta and delta from s_pred (with valid_mask centering).
+            Derives discrete scale indices from effective log scale log_sigma_eff = log_sigma - log_delta.
+
+        Returns:
+            Tuple of:
+                log_sigma: Continuous log-scale tensor on CPU in FP32.
+                scale_indexes: Discrete scale index tensor (int32) in [0, num_scales - 1].
+                delta: Spatial quantization step multiplier Delta in [0.25, 4.0].
+                log_delta: Log-quantization step tensor.
+                s_pred: Predicted visual saliency map in [0, 1] (or None if single-head).
+        """
+        configure_cpu_determinism()
+
+        with torch.no_grad():
+            orig_dim = z_hat.dim()
+            if orig_dim == 3:
+                z_input = z_hat.unsqueeze(0)
+            elif orig_dim == 4:
+                z_input = z_hat
+            else:
+                msg = f"Expected 3D or 4D tensor, got {orig_dim}D tensor of shape {tuple(z_hat.shape)}"
+                raise ValueError(msg)
+
+            z_cpu = z_input.detach().cpu().float()
+            hs_out = self.h_s(z_cpu)
+            if isinstance(hs_out, tuple):
+                log_sigma, s_pred = hs_out
+            else:
+                log_sigma, s_pred = hs_out, None
+
+            from src.codec.allocation import compute_log_delta, lookup_delta_from_table
+
+            if log_delta is not None:
+                resolved_log_delta = log_delta.detach().cpu().float()
+                resolved_delta = lookup_delta_from_table(resolved_log_delta)
+            elif s_pred is not None:
+                resolved_log_delta, resolved_delta = compute_log_delta(s_pred, valid_mask=valid_mask)
+            else:
+                resolved_delta = torch.ones_like(log_sigma)
+                resolved_log_delta = torch.zeros_like(log_sigma)
+
+            scale_indexes = self.compute_scale_indexes(log_sigma, log_delta=resolved_log_delta)
+
+            if orig_dim == 3:
+                log_sigma = log_sigma.squeeze(0)
+                scale_indexes = scale_indexes.squeeze(0)
+                resolved_delta = resolved_delta.squeeze(0)
+                resolved_log_delta = resolved_log_delta.squeeze(0)
+                if s_pred is not None:
+                    s_pred = s_pred.squeeze(0)
+
+        return log_sigma, scale_indexes, resolved_delta, resolved_log_delta, s_pred
 
     def __call__(
         self,

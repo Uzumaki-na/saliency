@@ -19,6 +19,8 @@ import torch.nn as nn
 from src.codec.entropy_models import EntropyBottleneck, GaussianConditional
 from src.codec.layers import GDN, IGDN
 
+MODEL_ID_A: int = 0
+
 
 class ModelOutput(dict):
     """Container for model outputs supporting dictionary, attribute access, and tuple conversion."""
@@ -272,6 +274,9 @@ class ModelA(nn.Module):
     - training=True: Additive uniform noise relaxation U(-0.5, 0.5) applied to y and z.
     - training=False: Integer rounding torch.round applied to y and z for deterministic evaluation.
     """
+
+    model_type: str = "A"
+    model_id: int = MODEL_ID_A
 
     def __init__(
         self,

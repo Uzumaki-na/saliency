@@ -115,6 +115,51 @@ class TestSancContainerSerialization:
         assert container.total_bytes == 232
         assert pytest.approx(container.bpp, 1e-4) == 0.453125
 
+    def test_container_with_sidecar_roundtrip(self) -> None:
+        r"""Verifies serialization and deserialization of sidecar containers (Model C-Transmitted)."""
+        pad = PadBounds(0, 0, 0, 0)
+        sidecar_data = b"compressed_saliency_thumbnail_deflate"
+        z_payload = b"hyper_latent_data"
+        y_payload = b"main_latent_data"
+
+        container = SancContainer(
+            orig_height=128,
+            orig_width=128,
+            pad_bounds=pad,
+            z_bitstream=z_payload,
+            y_bitstream=y_payload,
+            model_id=4,
+            sidecar_bitstream=sidecar_data,
+        )
+
+        raw_bytes = container.to_bytes()
+        assert len(raw_bytes) == container.total_bytes
+
+        restored = SancContainer.from_bytes(raw_bytes)
+        assert restored.model_id == 4
+        assert restored.sidecar_bitstream == sidecar_data
+        assert restored.z_bitstream == z_payload
+        assert restored.y_bitstream == y_payload
+        assert restored.orig_height == 128
+        assert restored.orig_width == 128
+
+    def test_create_model_helper(self) -> None:
+        r"""Verifies create_model utility instantiation across all model IDs and strings."""
+        from src.bitstream.container import create_model
+        from src.codec import ModelA, ModelB, ModelC, ModelCTransmitted, ModelD
+
+        assert isinstance(create_model(0), ModelA)
+        assert isinstance(create_model(1), ModelB)
+        assert isinstance(create_model(2), ModelC)
+        assert isinstance(create_model(3), ModelD)
+        assert isinstance(create_model(4), ModelCTransmitted)
+
+        assert isinstance(create_model("A"), ModelA)
+        assert isinstance(create_model("B"), ModelB)
+        assert isinstance(create_model("C"), ModelC)
+        assert isinstance(create_model("D"), ModelD)
+        assert isinstance(create_model("C-Transmitted"), ModelCTransmitted)
+
 
 class TestContainerValidationErrors:
     r"""Tests for defensive exception handling on malformed container bytes."""
@@ -165,6 +210,47 @@ class TestContainerValidationErrors:
         r"""Asserts that loading a non-existent file path raises FileNotFoundError."""
         with pytest.raises(FileNotFoundError, match="Container file not found"):
             SancContainer.load(tmp_path / "missing.sanc")
+
+    def test_invalid_model_id_raises(self) -> None:
+        r"""Asserts that unsupported model_id raises ValueError during deserialization."""
+        pad = PadBounds(0, 0, 0, 0)
+        valid = bytearray(SancContainer(64, 64, pad, b"z", b"y").to_bytes())
+        # model_id is at byte offset 5
+        valid[5] = 99
+        with pytest.raises(ValueError, match="Unsupported or unknown model_id: 99"):
+            SancContainer.from_bytes(bytes(valid))
+
+    def test_trailing_data_raises(self) -> None:
+        r"""Asserts that unexpected trailing bytes in container payload raise ValueError."""
+        pad = PadBounds(0, 0, 0, 0)
+        valid = SancContainer(64, 64, pad, b"z", b"y").to_bytes()
+        corrupted = valid + b"extra_trailing_garbage"
+        with pytest.raises(ValueError, match="Unexpected trailing data in container"):
+            SancContainer.from_bytes(corrupted)
+
+    def test_model_c_transmitted_missing_sidecar_raises(self) -> None:
+        r"""Asserts that instantiating Model C-Transmitted (model_id=4) with empty sidecar raises ValueError."""
+        pad = PadBounds(0, 0, 0, 0)
+        with pytest.raises(ValueError, match="requires non-empty sidecar_bitstream"):
+            SancContainer(64, 64, pad, b"z", b"y", model_id=4, sidecar_bitstream=None)
+
+    def test_pad_bounds_tuple_conversion(self) -> None:
+        r"""Verifies that tuple pad_bounds are automatically converted to PadBounds in __post_init__."""
+        container = SancContainer(64, 64, (2, 2, 4, 4), b"z", b"y")  # type: ignore[arg-type]
+        assert isinstance(container.pad_bounds, PadBounds)
+        assert container.pad_bounds == PadBounds(2, 2, 4, 4)
+
+    def test_decode_model_mismatch_raises(self, dummy_model: ModelA) -> None:
+        r"""Asserts that decode_image raises ValueError if container model_id doesn't match model."""
+        from src.codec.model_c import ModelC
+
+        pad = PadBounds(0, 0, 0, 0)
+        container = SancContainer(64, 64, pad, b"z", b"y", model_id=2)
+        model_c = ModelC()
+        model_c.update()
+        # dummy_model is ModelA (model_id=0), container is ModelC (model_id=2)
+        with pytest.raises(ValueError, match=r"Container model_id \(2\) does not match model.model_id \(0\)"):
+            decode_image(container, dummy_model)
 
 
 class TestImageLoadingHelper:

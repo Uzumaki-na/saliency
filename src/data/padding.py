@@ -465,3 +465,7 @@ def compute_valid_latent_mask(
         mask = mask.to(dtype=dtype)
 
     return mask
+
+
+# Alias for backward compatibility and convenience
+compute_latent_valid_mask = compute_valid_latent_mask

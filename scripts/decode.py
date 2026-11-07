@@ -20,7 +20,7 @@ import numpy as np  # noqa: E402
 import torch  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from src.bitstream.container import SancContainer, decode_image  # noqa: E402
+from src.bitstream.container import SancContainer, create_model, decode_image  # noqa: E402
 from src.codec.model_a import ModelA  # noqa: E402
 
 
@@ -28,7 +28,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Decompress a .sanc binary container file into a reconstructed image.")
     parser.add_argument("-i", "--input", type=str, required=True, help="Path to input .sanc bitstream file.")
     parser.add_argument("-o", "--output", type=str, required=True, help="Path to output image file (PNG, JPEG, etc.).")
-    parser.add_argument("-c", "--checkpoint", type=str, default=None, help="Path to trained ModelA checkpoint (.pt).")
+    parser.add_argument("-c", "--checkpoint", type=str, default=None, help="Path to trained model checkpoint (.pt).")
+    parser.add_argument(
+        "-m",
+        "--model",
+        type=str,
+        default=None,
+        help="Model architecture override (A, B, C, D, C-Transmitted; defaults to model_id from container).",
+    )
     parser.add_argument(
         "--device",
         type=str,
@@ -46,13 +53,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_model(checkpoint_path: str | None) -> ModelA:
-    model = ModelA()
+def load_model(checkpoint_path: str | None, model_type_or_id: str | int = 0) -> ModelA:
+    model = create_model(model_type_or_id)
     if checkpoint_path is not None:
         path = Path(checkpoint_path)
         if not path.is_file():
             sys.exit(f"Error: Checkpoint file not found: {path}")
-        state_dict = torch.load(path, map_location="cpu")
+        state_dict = torch.load(path, map_location="cpu", weights_only=False)
         if "state_dict" in state_dict:
             state_dict = state_dict["state_dict"]
         model.load_state_dict(state_dict)
@@ -76,7 +83,8 @@ def main() -> None:
         device = "cpu"
 
     container = SancContainer.load(input_path)
-    model = load_model(args.checkpoint)
+    model_type = args.model if args.model is not None else container.model_id
+    model = load_model(args.checkpoint, model_type_or_id=model_type)
 
     t0 = time.perf_counter()
     x_hat = decode_image(

@@ -24,6 +24,9 @@ from src.codec.model_a import ModelA
 
 logger = logging.getLogger(__name__)
 
+# Model ID constant for Model B
+MODEL_ID_B: int = 1
+
 # Translation rules mapping CompressAI Sequential layer indexing to ModelA/ModelB naming
 COMPRESSAI_RENAME_RULES: tuple[tuple[str, str], ...] = (
     ("g_a.0.", "g_a.conv1."),
@@ -334,6 +337,9 @@ class ModelB(ModelA):
     Latent rate allocation is driven implicitly through the spatial weighting of the reconstruction
     loss rather than explicit latent quantization scaling (Delta).
     """
+
+    model_type: str = "B"
+    model_id: int = MODEL_ID_B
 
     def __init__(
         self,

@@ -35,6 +35,7 @@ from src.data.manifests import (
 )
 from src.data.padding import (
     PadBounds,
+    compute_latent_valid_mask,
     compute_padding_offsets,
     compute_valid_latent_mask,
     pad_image_and_saliency_centered,
@@ -92,6 +93,7 @@ __all__ = [
     "SynchronizedTransforms",
     "VerificationResult",
     "compute_file_md5",
+    "compute_latent_valid_mask",
     "compute_padding_offsets",
     "compute_valid_latent_mask",
     "create_saliency_dataloader",

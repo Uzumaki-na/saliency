@@ -24,6 +24,9 @@ from src.training.loss import compute_hyperprior_overhead
 
 logger = logging.getLogger(__name__)
 
+# Model ID constant for Model D (0x03)
+MODEL_ID_D: int = 3
+
 
 class ModelD(ModelC):
     r"""Model D mechanism-only variational image compression architecture.
@@ -45,6 +48,7 @@ class ModelD(ModelC):
     """
 
     model_type: str = "D"
+    model_id: int = MODEL_ID_D
 
     def __init__(
         self,

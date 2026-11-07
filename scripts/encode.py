@@ -18,7 +18,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 import torch  # noqa: E402
 
-from src.bitstream.container import SancContainer, encode_image, load_image_tensor  # noqa: E402
+from src.bitstream.container import SancContainer, create_model, encode_image, load_image_tensor  # noqa: E402
 from src.codec.model_a import ModelA  # noqa: E402
 
 
@@ -28,7 +28,21 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("-i", "--input", type=str, required=True, help="Path to input image file (PNG, JPEG, etc.).")
     parser.add_argument("-o", "--output", type=str, required=True, help="Path to destination .sanc bitstream file.")
-    parser.add_argument("-c", "--checkpoint", type=str, default=None, help="Path to trained ModelA checkpoint (.pt).")
+    parser.add_argument("-c", "--checkpoint", type=str, default=None, help="Path to trained model checkpoint (.pt).")
+    parser.add_argument(
+        "-m",
+        "--model",
+        type=str,
+        default="A",
+        help="Model architecture (A, B, C, D, C-Transmitted, default: A).",
+    )
+    parser.add_argument(
+        "-s",
+        "--saliency",
+        type=str,
+        default=None,
+        help="Optional path to visual saliency map for Model C-Transmitted.",
+    )
     parser.add_argument(
         "--device",
         type=str,
@@ -46,13 +60,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_model(checkpoint_path: str | None) -> ModelA:
-    model = ModelA()
+def load_model(checkpoint_path: str | None, model_type: str = "A") -> ModelA:
+    model = create_model(model_type)
     if checkpoint_path is not None:
         path = Path(checkpoint_path)
         if not path.is_file():
             sys.exit(f"Error: Checkpoint file not found: {path}")
-        state_dict = torch.load(path, map_location="cpu")
+        state_dict = torch.load(path, map_location="cpu", weights_only=False)
         if "state_dict" in state_dict:
             state_dict = state_dict["state_dict"]
         model.load_state_dict(state_dict)
@@ -75,7 +89,13 @@ def main() -> None:
         print("Warning: CUDA requested but not available. Falling back to CPU.")
         device = "cpu"
 
-    model = load_model(args.checkpoint)
+    model = load_model(args.checkpoint, model_type=args.model)
+
+    if args.saliency is not None and args.model.strip().upper() not in ("C-TRANSMITTED", "CTRANSMITTED", "4"):
+        print(
+            f"Warning: Saliency map provided but model architecture '{args.model}' "
+            "does not transmit or consume external saliency sidecars. The saliency map will be ignored."
+        )
 
     t0 = time.perf_counter()
     image_tensor = load_image_tensor(input_path)
@@ -84,6 +104,7 @@ def main() -> None:
         model=model,
         device=device,
         backend=args.backend,
+        saliency_map=args.saliency,
     )
     elapsed = time.perf_counter() - t0
 

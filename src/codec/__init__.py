@@ -37,6 +37,7 @@ from src.codec.layers import (
     NonNegativeParametrizer,
 )
 from src.codec.model_a import (
+    MODEL_ID_A,
     AnalysisTransform,
     HyperAnalysisTransform,
     HyperSynthesisTransform,
@@ -45,18 +46,16 @@ from src.codec.model_a import (
     SynthesisTransform,
 )
 from src.codec.model_b import (
+    MODEL_ID_B,
     ModelB,
     load_pretrained_bmshj2018,
     remap_compressai_state_dict,
 )
 from src.codec.model_c import (
+    MODEL_ID_C,
     DualHeadHyperSynthesisTransform,
     ModelC,
     ModelCOutput,
-)
-from src.codec.model_d import (
-    ModelD,
-    compute_hyperprior_overhead,
 )
 from src.codec.model_c_transmitted import (
     MODEL_ID_C_TRANSMITTED,
@@ -66,11 +65,21 @@ from src.codec.model_c_transmitted import (
     compute_sidecar_bpp,
     decompress_saliency_thumbnail,
 )
+from src.codec.model_d import (
+    MODEL_ID_D,
+    ModelD,
+    compute_hyperprior_overhead,
+)
 
 __all__ = [
     "DELTA_TABLE_129",
     "GDN",
     "IGDN",
+    "MODEL_ID_A",
+    "MODEL_ID_B",
+    "MODEL_ID_C",
+    "MODEL_ID_C_TRANSMITTED",
+    "MODEL_ID_D",
     "AnalysisTransform",
     "DualHeadHyperSynthesisTransform",
     "EntropyBottleneck",
@@ -79,7 +88,6 @@ __all__ = [
     "HyperSynthesisTransform",
     "LowerBound",
     "LowerBoundFunction",
-    "MODEL_ID_C_TRANSMITTED",
     "ModelA",
     "ModelB",
     "ModelC",
