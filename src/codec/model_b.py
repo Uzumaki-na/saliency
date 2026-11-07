@@ -72,6 +72,7 @@ _KNOWN_MODEL_PREFIXES: tuple[str, ...] = (
     "h_s.deconv1.",
     "h_s.deconv2.",
     "h_s.conv3.",
+    "h_s.conv_saliency.",
     "entropy_bottleneck.weights.",
     "entropy_bottleneck.biases.",
     "entropy_bottleneck._quantized_cdf",

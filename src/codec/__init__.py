@@ -7,6 +7,7 @@ Exports:
 - HyperAnalysisTransform (h_a), HyperSynthesisTransform (h_s): Hyperprior transforms.
 - ModelOutput, ModelA: Baseline compression model and output container.
 - ModelB: Saliency-weighted implicit allocation baseline model.
+- ModelC, ModelCOutput, DualHeadHyperSynthesisTransform: Explicit adaptive allocation model.
 - load_pretrained_bmshj2018, remap_compressai_state_dict: Pretrained weight loading utilities.
 - compute_log_delta, compute_effective_log_scale, quantize_ste_1_32, build_delta_table,
   lookup_delta_from_table, quantize_latents_adaptive, DELTA_TABLE_129: Saliency allocation engine.
@@ -46,12 +47,18 @@ from src.codec.model_b import (
     load_pretrained_bmshj2018,
     remap_compressai_state_dict,
 )
+from src.codec.model_c import (
+    DualHeadHyperSynthesisTransform,
+    ModelC,
+    ModelCOutput,
+)
 
 __all__ = [
     "DELTA_TABLE_129",
     "GDN",
     "IGDN",
     "AnalysisTransform",
+    "DualHeadHyperSynthesisTransform",
     "EntropyBottleneck",
     "GaussianConditional",
     "HyperAnalysisTransform",
@@ -60,6 +67,8 @@ __all__ = [
     "LowerBoundFunction",
     "ModelA",
     "ModelB",
+    "ModelC",
+    "ModelCOutput",
     "ModelOutput",
     "NonNegativeParametrizer",
     "STE1Over32Quantizer",

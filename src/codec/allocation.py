@@ -205,9 +205,13 @@ def compute_log_delta(
             mb = valid_mask.bool().to(device=s_pred.device)
             mf = mb.float()
             # Align leading dimensions if needed
-            while mb.ndim < s_pred.ndim:
-                mb = mb.unsqueeze(0)
-                mf = mf.unsqueeze(0)
+            if mb.ndim == 3 and s_clamped.ndim == 4 and mb.shape[0] == s_clamped.shape[0]:
+                mb = mb.unsqueeze(1)
+                mf = mf.unsqueeze(1)
+            else:
+                while mb.ndim < s_clamped.ndim:
+                    mb = mb.unsqueeze(0)
+                    mf = mf.unsqueeze(0)
             mask_bool = mb.expand_as(s_clamped)
             m_float = mf.expand_as(s_clamped)
 
