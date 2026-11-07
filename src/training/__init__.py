@@ -1,6 +1,7 @@
 """Training package providing loss functions, optimization harnesses, and training utilities.
 
 Exports:
+- auxiliary_saliency_loss: Masked binary cross-entropy loss over valid cells with strict FP32 precision.
 - saliency_weighted_distortion: Functional implementation of saliency-weighted reconstruction distortion.
 - RateDistortionLoss: CompressAI-compatible rate-distortion loss module with saliency weighting.
 - ParameterPartition: NamedTuple container holding partitioned model parameters.
@@ -15,12 +16,17 @@ Exports:
 - compute_msssim: Wang et al. 5-scale MS-SSIM evaluation in pure PyTorch.
 - compute_bpp: Bits-per-pixel evaluation from likelihoods or byte counts.
 - compute_mse: Mean squared error evaluation.
+- compute_correlation_coefficient: Pearson CC between predicted and target saliency.
+- compute_kl_divergence: Spatial distribution KL divergence over valid mask.
+- compute_auc_judd: AUC-Judd ROC evaluation.
+- evaluate_representation_quality: Representation quality gate evaluation.
 """
 
 from __future__ import annotations
 
 from src.training.loss import (
     RateDistortionLoss,
+    auxiliary_saliency_loss,
     saliency_weighted_distortion,
 )
 from src.training.optimizer import (
@@ -32,10 +38,14 @@ from src.training.optimizer import (
 )
 from src.training.tracker import (
     MLflowTracker,
+    compute_auc_judd,
     compute_bpp,
+    compute_correlation_coefficient,
+    compute_kl_divergence,
     compute_mse,
     compute_msssim,
     compute_psnr,
+    evaluate_representation_quality,
     load_checkpoint,
     save_checkpoint,
 )
@@ -46,11 +56,16 @@ __all__ = [
     "MLflowTracker",
     "ParameterPartition",
     "RateDistortionLoss",
+    "auxiliary_saliency_loss",
+    "compute_auc_judd",
     "compute_bpp",
+    "compute_correlation_coefficient",
+    "compute_kl_divergence",
     "compute_mse",
     "compute_msssim",
     "compute_psnr",
     "create_dual_optimizer",
+    "evaluate_representation_quality",
     "load_checkpoint",
     "partition_parameters",
     "saliency_weighted_distortion",

@@ -1,10 +1,12 @@
 """Loss functions for saliency-weighted learned image compression.
 
 This module implements:
+- auxiliary_saliency_loss: Masked binary cross-entropy loss over valid cells with strict FP32 precision.
 - saliency_weighted_distortion: Functional saliency-weighted reconstruction distortion
   with an explicit 0.2 background floor (S' = 0.2 + 0.8 * S), valid masking, and strict FP32 precision.
 - RateDistortionLoss: CompressAI-compatible rate-distortion loss module balancing
-  bitrate (bits per pixel) and scaled distortion (loss = bpp_loss + lambda * 255^2 * distortion).
+  bitrate (bits per pixel), scaled distortion (loss = bpp_loss + lambda * 255^2 * distortion),
+  and auxiliary saliency loss (lambda_aux * aux_loss).
 """
 
 from __future__ import annotations
@@ -14,6 +16,134 @@ from typing import Any
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+
+def auxiliary_saliency_loss(
+    s_pred: torch.Tensor,
+    s_target: torch.Tensor,
+    valid_mask: torch.Tensor | None = None,
+    *,
+    eps: float = 1e-7,
+) -> torch.Tensor:
+    r"""Computes auxiliary saliency loss (masked binary cross-entropy) over valid cells.
+
+    .. math::
+        \mathcal{L}_{\text{aux}} = \frac{1}{|M_{\text{valid}}|} \sum_{(i,j) \in M_{\text{valid}}}
+            \Bigl[ -S_{ij} \log(S_{\text{pred}, ij} + \epsilon)
+                   - (1 - S_{ij}) \log(1 - S_{\text{pred}, ij} + \epsilon) \Bigr]
+
+    Operates in strict FP32 outside autocast. Automatically aligns spatial dimensions of
+    ``s_target`` and ``valid_mask`` to ``s_pred`` if higher resolution (e.g. image vs latent grid).
+    Target ``s_target`` is detached so gradients flow exclusively into ``s_pred``.
+
+    Args:
+        s_pred: Predicted visual saliency map tensor in [0, 1].
+        s_target: Ground truth visual saliency map tensor in [0, 1].
+        valid_mask: Optional boolean or float mask of valid unpadded regions. Cells with 0/False
+            contribute exactly zero loss and zero gradient.
+        eps: Small numerical constant for log stability (default 1e-7).
+
+    Returns:
+        torch.Tensor: Scalar auxiliary loss in strict FP32.
+
+    Raises:
+        TypeError: If inputs are not torch.Tensor.
+        ValueError: If inputs have invalid dimensions, contain NaN/Inf, or valid_mask is empty.
+    """
+    if not isinstance(s_pred, torch.Tensor):
+        raise TypeError(f"s_pred must be a torch.Tensor, got {type(s_pred)}")
+    if not isinstance(s_target, torch.Tensor):
+        raise TypeError(f"s_target must be a torch.Tensor, got {type(s_target)}")
+    if valid_mask is not None and not isinstance(valid_mask, torch.Tensor):
+        raise TypeError(f"valid_mask must be a torch.Tensor, got {type(valid_mask)}")
+
+    if s_pred.ndim not in (2, 3, 4):
+        raise ValueError(f"s_pred must be a 2D, 3D, or 4D tensor, got shape {tuple(s_pred.shape)}")
+    if s_target.ndim not in (2, 3, 4):
+        raise ValueError(f"s_target must be a 2D, 3D, or 4D tensor, got shape {tuple(s_target.shape)}")
+
+    if not s_pred.is_cuda or not torch.is_grad_enabled():
+        if torch.isnan(s_pred).any() or torch.isinf(s_pred).any():
+            raise ValueError("s_pred contains NaN or Inf values")
+        if torch.isnan(s_target).any() or torch.isinf(s_target).any():
+            raise ValueError("s_target contains NaN or Inf values")
+        if valid_mask is not None and (torch.isnan(valid_mask).any() or torch.isinf(valid_mask).any()):
+            raise ValueError("valid_mask contains NaN or Inf values")
+
+    device_type = s_pred.device.type if s_pred.device.type in ("cuda", "cpu") else "cpu"
+    with torch.autocast(device_type=device_type, enabled=False):
+        p = s_pred.float()
+        t = s_target.detach().float().to(device=s_pred.device)
+
+        # Standardize p to 4D (B, 1, H, W)
+        if p.ndim == 2:
+            p = p.unsqueeze(0).unsqueeze(0)
+        elif p.ndim == 3:
+            p = p.unsqueeze(1)
+        elif p.shape[1] != 1:
+            p = torch.mean(p, dim=1, keepdim=True)
+
+        b, _, h, w = p.shape
+
+        # Standardize t to 4D (B, 1, H_t, W_t)
+        if t.ndim == 2:
+            t = t.unsqueeze(0).unsqueeze(0)
+        elif t.ndim == 3:
+            t = t.unsqueeze(1)
+        elif t.shape[1] != 1:
+            t = torch.mean(t, dim=1, keepdim=True)
+
+        if t.shape[0] == 1 and b > 1:
+            t = t.expand(b, -1, -1, -1)
+        elif t.shape[0] != b:
+            raise ValueError(f"Batch size mismatch: s_pred batch={b} vs s_target batch={t.shape[0]}")
+
+        # Spatially pool/interpolate s_target if higher resolution
+        if t.shape[-2:] != (h, w):
+            if t.shape[-2] >= h and t.shape[-1] >= w:
+                t = F.interpolate(t, size=(h, w), mode="area")
+            else:
+                t = F.interpolate(t, size=(h, w), mode="bilinear", align_corners=False)
+
+        # Clamp inputs safely into [0, 1]
+        p_clamped = torch.clamp(p, min=0.0, max=1.0)
+        t_clamped = torch.clamp(t, min=0.0, max=1.0)
+
+        # Masked BCE elementwise:
+        bce = -t_clamped * torch.log(p_clamped + eps) - (1.0 - t_clamped) * torch.log(1.0 - p_clamped + eps)
+
+        if valid_mask is not None:
+            m = valid_mask.to(device=s_pred.device)
+            if m.ndim == 2:
+                m = m.unsqueeze(0).unsqueeze(0)
+            elif m.ndim == 3:
+                m = m.unsqueeze(1)
+            elif m.shape[1] != 1:
+                m = m[:, :1, :, :]
+
+            if m.shape[0] == 1 and b > 1:
+                m = m.expand(b, -1, -1, -1)
+            elif m.shape[0] != b:
+                raise ValueError(f"Batch size mismatch: s_pred batch={b} vs valid_mask batch={m.shape[0]}")
+
+            if m.shape[-2:] != (h, w):
+                m = F.interpolate(m.float(), size=(h, w), mode="nearest")
+
+            m_bool = m.bool()
+            m_float = m_bool.float()
+
+            if not s_pred.is_cuda or not torch.is_grad_enabled():
+                if m_float.sum().item() <= 0:
+                    raise ValueError("valid_mask contains no valid cells")
+
+            n_valid = torch.clamp(m_float.sum(), min=1.0)
+            masked_bce = bce * m_float
+            loss = masked_bce.sum() / n_valid
+        else:
+            loss = bce.mean()
+
+        return torch.clamp(loss, min=0.0)
 
 
 def saliency_weighted_distortion(
@@ -174,6 +304,7 @@ class RateDistortionLoss(nn.Module):
     Optimizes the CompressAI-compatible objective:
         .. math::
             \mathcal{L} = R_{\text{bpp}} + \lambda \cdot 255^2 \cdot D_{\text{saliency}}
+                          + \lambda_{\text{aux}} \mathcal{L}_{\text{aux}}
 
     Where:
         - :math:`R_{\text{bpp}} = \text{y\_bpp} + \text{z\_bpp}`
@@ -181,15 +312,19 @@ class RateDistortionLoss(nn.Module):
         - :math:`\text{z\_bpp} = -\frac{\sum \log_2(p_z)}{B \cdot H \cdot W}`
         - :math:`D_{\text{saliency}}`: Saliency-weighted distortion with 0.2 background floor.
         - :math:`\text{mse\_loss}`: Unweighted mean squared error over the valid evaluation area.
+        - :math:`\mathcal{L}_{\text{aux}}`: Auxiliary saliency loss (masked BCE over valid cells).
 
     Operates in strict FP32 outside autocast to prevent CDF underflow or loss quantization.
     """
 
-    def __init__(self, lmbda: float = 0.01) -> None:
+    def __init__(self, lmbda: float = 0.01, lambda_aux: float = 0.1) -> None:
         super().__init__()
         if lmbda < 0.0:
             raise ValueError(f"lmbda must be non-negative, got {lmbda}")
+        if lambda_aux < 0.0:
+            raise ValueError(f"lambda_aux must be non-negative, got {lambda_aux}")
         self.lmbda = float(lmbda)
+        self.lambda_aux = float(lambda_aux)
 
     def forward(
         self,
@@ -198,6 +333,7 @@ class RateDistortionLoss(nn.Module):
         s: torch.Tensor | None = None,
         valid_mask: torch.Tensor | None = None,
         *,
+        s_pred: torch.Tensor | None = None,
         saliency_map: torch.Tensor | None = None,
         mask: torch.Tensor | None = None,
         target_num_pixels: int | None = None,
@@ -207,10 +343,11 @@ class RateDistortionLoss(nn.Module):
 
         Args:
             output: ModelOutput container, dict, or object containing 'x_hat', 'y_likelihoods',
-                and 'z_likelihoods' (or 'likelihoods' dictionary).
+                and 'z_likelihoods' (or 'likelihoods' dictionary). Optionally contains 's_pred'.
             target: Ground truth target image tensor (B, C, H, W) or (C, H, W).
             s: Optional visual saliency map in [0, 1].
             valid_mask: Optional spatial valid mask for unpadded region evaluation.
+            s_pred: Optional predicted saliency map override.
             saliency_map: Keyword-only alias for s.
             mask: Keyword-only alias for valid_mask.
             target_num_pixels: Optional explicit pixel count for bpp normalization. Defaults
@@ -225,6 +362,8 @@ class RateDistortionLoss(nn.Module):
                 - 'z_bpp': Hyper-latent bitrate.
                 - 'distortion': Saliency-weighted distortion in [0, 1].
                 - 'mse_loss': Unweighted mean squared error in [0, 1].
+                - 'aux_loss': Auxiliary saliency loss (or 0.0 if s_pred is None).
+                - 'lambda_aux': Weight of the auxiliary loss term.
         """
         # Support swapped argument order if target is passed first
         if isinstance(output, torch.Tensor) and not isinstance(target, torch.Tensor):
@@ -238,14 +377,20 @@ class RateDistortionLoss(nn.Module):
             y_likelihoods = output.get("y_likelihoods")
             z_likelihoods = output.get("z_likelihoods")
             lik_container = output.get("likelihoods")
+            pred_from_output = output.get("s_pred")
         else:
             x_hat = getattr(output, "x_hat", None)
             y_likelihoods = getattr(output, "y_likelihoods", None)
             z_likelihoods = getattr(output, "z_likelihoods", None)
             lik_container = getattr(output, "likelihoods", None)
+            pred_from_output = getattr(output, "s_pred", None)
 
         if x_hat is None:
             raise ValueError("output must contain 'x_hat' tensor")
+
+        resolved_s_pred = s_pred if s_pred is not None else pred_from_output
+        target_s = s if s is not None else saliency_map
+        target_mask = valid_mask if valid_mask is not None else mask
 
         # Fallback to nested likelihoods dict if y/z not at top level
         if y_likelihoods is None and z_likelihoods is None and isinstance(lik_container, dict):
@@ -298,22 +443,33 @@ class RateDistortionLoss(nn.Module):
             distortion = saliency_weighted_distortion(
                 target,
                 x_hat,
-                s=s,
-                valid_mask=valid_mask,
-                saliency_map=saliency_map,
-                mask=mask,
+                s=target_s,
+                valid_mask=target_mask,
             )
 
             mse_loss = saliency_weighted_distortion(
                 target,
                 x_hat,
                 s=None,
-                valid_mask=valid_mask,
-                mask=mask,
+                valid_mask=target_mask,
             )
 
+            # Evaluate auxiliary saliency loss when s_pred is present
+            if resolved_s_pred is not None:
+                if target_s is None:
+                    raise ValueError(
+                        "Ground truth saliency map 's' must be provided when 's_pred' is present in output"
+                    )
+                aux_loss = auxiliary_saliency_loss(
+                    resolved_s_pred,
+                    target_s,
+                    valid_mask=target_mask,
+                )
+            else:
+                aux_loss = torch.tensor(0.0, device=target.device, dtype=torch.float32)
+
             eff_lmbda = self.lmbda if lmbda is None else float(lmbda)
-            loss = bpp_loss + eff_lmbda * (255.0**2) * distortion
+            loss = bpp_loss + eff_lmbda * (255.0**2) * distortion + self.lambda_aux * aux_loss
 
             return {
                 "loss": loss,
@@ -322,4 +478,13 @@ class RateDistortionLoss(nn.Module):
                 "z_bpp": z_bpp,
                 "distortion": distortion,
                 "mse_loss": mse_loss,
+                "aux_loss": aux_loss,
+                "lambda_aux": torch.tensor(self.lambda_aux, device=target.device, dtype=torch.float32),
             }
+
+
+__all__ = [
+    "RateDistortionLoss",
+    "auxiliary_saliency_loss",
+    "saliency_weighted_distortion",
+]

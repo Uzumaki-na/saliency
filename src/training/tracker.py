@@ -2,6 +2,8 @@
 
 Provides:
 - Metric computation: compute_psnr, compute_msssim, compute_bpp, and compute_mse in pure PyTorch FP32.
+- Saliency representation quality: compute_correlation_coefficient, compute_kl_divergence,
+  compute_auc_judd, and evaluate_representation_quality gate.
 - Checkpoint persistence: save_checkpoint enforcing post-training CDF table compilation gate,
   and load_checkpoint restoring weights and DualOptimizerHarness states.
 - MLflowTracker: Lifecycle manager for MLflow experiments, nested/tagged runs, parameters,
@@ -305,6 +307,376 @@ def compute_bpp(
         return bpp_tensor if as_tensor else float(bpp_tensor.item())
 
     raise TypeError(f"Unsupported input type for compute_bpp: {type(likelihoods_or_bytes)}")
+
+
+# ---------------------------------------------------------------------------
+# Saliency Representation Quality Metrics & Gate
+# ---------------------------------------------------------------------------
+
+
+def _prepare_saliency_inputs(
+    s_pred: torch.Tensor,
+    s_target: torch.Tensor,
+    valid_mask: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Validates and flattens s_pred and s_target over valid_mask into 1D FP32 tensors."""
+    if not isinstance(s_pred, torch.Tensor) or not isinstance(s_target, torch.Tensor):
+        raise TypeError(f"Inputs must be torch.Tensor instances, got ({type(s_pred)}, {type(s_target)})")
+    if valid_mask is not None and not isinstance(valid_mask, torch.Tensor):
+        raise TypeError(f"valid_mask must be a torch.Tensor, got {type(valid_mask)}")
+
+    if s_pred.ndim not in (2, 3, 4) or s_target.ndim not in (2, 3, 4):
+        raise ValueError(
+            f"Inputs must be 2D, 3D, or 4D tensors, got s_pred {tuple(s_pred.shape)}, s_target {tuple(s_target.shape)}"
+        )
+
+    if torch.isnan(s_pred).any() or torch.isinf(s_pred).any():
+        raise ValueError("s_pred contains NaN or Inf values")
+    if torch.isnan(s_target).any() or torch.isinf(s_target).any():
+        raise ValueError("s_target contains NaN or Inf values")
+    if valid_mask is not None and (torch.isnan(valid_mask).any() or torch.isinf(valid_mask).any()):
+        raise ValueError("valid_mask contains NaN or Inf values")
+
+    device_type = s_pred.device.type if s_pred.device.type in ("cuda", "cpu") else "cpu"
+    with torch.autocast(device_type=device_type, enabled=False):
+        p = s_pred.float()
+        t = s_target.detach().float().to(device=s_pred.device)
+
+        # Convert to 4D (B, 1, H, W)
+        if p.ndim == 2:
+            p = p.unsqueeze(0).unsqueeze(0)
+        elif p.ndim == 3:
+            p = p.unsqueeze(1)
+        elif p.shape[1] != 1:
+            p = torch.mean(p, dim=1, keepdim=True)
+
+        if t.ndim == 2:
+            t = t.unsqueeze(0).unsqueeze(0)
+        elif t.ndim == 3:
+            t = t.unsqueeze(1)
+        elif t.shape[1] != 1:
+            t = torch.mean(t, dim=1, keepdim=True)
+
+        if t.shape[0] == 1 and p.shape[0] > 1:
+            t = t.expand(p.shape[0], -1, -1, -1)
+        elif p.shape[0] == 1 and t.shape[0] > 1:
+            p = p.expand(t.shape[0], -1, -1, -1)
+        elif p.shape[0] != t.shape[0]:
+            raise ValueError(f"Batch dimension mismatch: s_pred ({p.shape[0]}) vs s_target ({t.shape[0]})")
+
+        # Align spatial resolution of target if different from prediction
+        if t.shape[-2:] != p.shape[-2:]:
+            if t.shape[-2] >= p.shape[-2] and t.shape[-1] >= p.shape[-1]:
+                t = F.interpolate(t, size=p.shape[-2:], mode="area")
+            else:
+                t = F.interpolate(t, size=p.shape[-2:], mode="bilinear", align_corners=False)
+
+        if valid_mask is not None:
+            m = valid_mask.to(device=p.device)
+            if m.ndim == 2:
+                m = m.unsqueeze(0).unsqueeze(0)
+            elif m.ndim == 3:
+                m = m.unsqueeze(1)
+            elif m.shape[1] != 1:
+                m = m[:, :1, :, :]
+
+            if m.shape[0] == 1 and p.shape[0] > 1:
+                m = m.expand(p.shape[0], -1, -1, -1)
+            elif m.shape[0] != p.shape[0]:
+                raise ValueError(f"Batch dimension mismatch: s_pred ({p.shape[0]}) vs valid_mask ({m.shape[0]})")
+
+            if m.shape[-2:] != p.shape[-2:]:
+                m = F.interpolate(m.float(), size=p.shape[-2:], mode="nearest")
+
+            mask_bool = m.bool()
+            if not mask_bool.any():
+                raise ValueError("valid_mask contains no valid cells")
+
+            p_flat = p[mask_bool]
+            t_flat = t[mask_bool]
+        else:
+            p_flat = p.reshape(-1)
+            t_flat = t.reshape(-1)
+
+        return p_flat, t_flat
+
+
+def compute_correlation_coefficient(
+    s_pred: torch.Tensor,
+    s_target: torch.Tensor,
+    valid_mask: torch.Tensor | None = None,
+    *,
+    eps: float = 1e-7,
+    as_tensor: bool = False,
+) -> float | torch.Tensor:
+    r"""Computes Pearson Correlation Coefficient (CC) between predicted and target saliency in FP32.
+
+    .. math::
+        \text{CC} = \frac{\sum (S_{\text{pred}} - \bar{S}_{\text{pred}})(S - \bar{S})}
+                         {\sqrt{\sum (S_{\text{pred}} - \bar{S}_{\text{pred}})^2 \sum (S - \bar{S})^2} + \epsilon}
+
+    Clamped safely to :math:`[-1.0, 1.0]`. When batched inputs (:math:`B > 1`) are supplied,
+    evaluates CC per sample independently and returns the mean across the batch.
+
+    Args:
+        s_pred: Predicted visual saliency map in [0, 1].
+        s_target: Ground truth visual saliency map in [0, 1].
+        valid_mask: Optional boolean or float mask indicating valid unpadded regions.
+        eps: Small numerical constant for denominator stability.
+        as_tensor: If True, returns scalar torch.Tensor; otherwise returns float.
+
+    Returns:
+        Scalar CC value in [-1.0, 1.0].
+    """
+    if not isinstance(s_pred, torch.Tensor):
+        raise TypeError(f"s_pred must be a torch.Tensor, got {type(s_pred)}")
+    if not isinstance(s_target, torch.Tensor):
+        raise TypeError(f"s_target must be a torch.Tensor, got {type(s_target)}")
+    if valid_mask is not None and not isinstance(valid_mask, torch.Tensor):
+        raise TypeError(f"valid_mask must be a torch.Tensor, got {type(valid_mask)}")
+
+    if s_pred.ndim >= 3 and s_pred.shape[0] > 1:
+        b = s_pred.shape[0]
+        vals = []
+        for i in range(b):
+            m_i = (
+                valid_mask[i]
+                if (valid_mask is not None and valid_mask.ndim >= 3 and valid_mask.shape[0] == b)
+                else valid_mask
+            )
+            t_i = s_target[i] if (s_target.ndim >= 3 and s_target.shape[0] == b) else s_target
+            vals.append(compute_correlation_coefficient(s_pred[i], t_i, valid_mask=m_i, eps=eps, as_tensor=True))
+        mean_cc = torch.stack(vals).mean()
+        return mean_cc if as_tensor else float(mean_cc.item())
+
+    p_flat, t_flat = _prepare_saliency_inputs(s_pred, s_target, valid_mask)
+    device_type = s_pred.device.type if s_pred.device.type in ("cuda", "cpu") else "cpu"
+    with torch.autocast(device_type=device_type, enabled=False):
+        p_mean = p_flat.mean()
+        t_mean = t_flat.mean()
+        u = p_flat - p_mean
+        v = t_flat - t_mean
+
+        cov = torch.sum(u * v)
+        var_p = torch.sum(u**2)
+        var_t = torch.sum(v**2)
+        denom = torch.sqrt(var_p * var_t)
+
+        if denom < eps:
+            if torch.allclose(p_flat, t_flat, atol=1e-5):
+                cc = torch.tensor(1.0, device=p_flat.device, dtype=torch.float32)
+            else:
+                cc = torch.tensor(0.0, device=p_flat.device, dtype=torch.float32)
+        else:
+            cc = torch.clamp(cov / denom, min=-1.0, max=1.0)
+
+    if as_tensor:
+        return cc
+    return float(cc.item())
+
+
+def compute_kl_divergence(
+    s_pred: torch.Tensor,
+    s_target: torch.Tensor,
+    valid_mask: torch.Tensor | None = None,
+    *,
+    eps: float = 1e-7,
+    as_tensor: bool = False,
+) -> float | torch.Tensor:
+    r"""Computes Kullback-Leibler (KL) Divergence between target and predicted saliency distributions.
+
+    .. math::
+        P = \frac{S}{\sum S + \epsilon}, \quad Q = \frac{S_{\text{pred}}}{\sum S_{\text{pred}} + \epsilon}
+
+        \text{KL}(S \parallel S_{\text{pred}}) = \sum P \log\left(\frac{P}{Q + \epsilon} + \epsilon\right)
+
+    Clamped to :math:`\ge 0.0`. When batched inputs (:math:`B > 1`) are supplied,
+    evaluates KL divergence per sample independently and returns the mean across the batch.
+
+    Args:
+        s_pred: Predicted visual saliency map in [0, 1].
+        s_target: Ground truth visual saliency map in [0, 1].
+        valid_mask: Optional boolean or float mask indicating valid unpadded regions.
+        eps: Small numerical constant for probability normalization and log stability.
+        as_tensor: If True, returns scalar torch.Tensor; otherwise returns float.
+
+    Returns:
+        Scalar KL divergence value in [0, inf).
+    """
+    if not isinstance(s_pred, torch.Tensor):
+        raise TypeError(f"s_pred must be a torch.Tensor, got {type(s_pred)}")
+    if not isinstance(s_target, torch.Tensor):
+        raise TypeError(f"s_target must be a torch.Tensor, got {type(s_target)}")
+    if valid_mask is not None and not isinstance(valid_mask, torch.Tensor):
+        raise TypeError(f"valid_mask must be a torch.Tensor, got {type(valid_mask)}")
+
+    if s_pred.ndim >= 3 and s_pred.shape[0] > 1:
+        b = s_pred.shape[0]
+        vals = []
+        for i in range(b):
+            m_i = (
+                valid_mask[i]
+                if (valid_mask is not None and valid_mask.ndim >= 3 and valid_mask.shape[0] == b)
+                else valid_mask
+            )
+            t_i = s_target[i] if (s_target.ndim >= 3 and s_target.shape[0] == b) else s_target
+            vals.append(compute_kl_divergence(s_pred[i], t_i, valid_mask=m_i, eps=eps, as_tensor=True))
+        mean_kl = torch.stack(vals).mean()
+        return mean_kl if as_tensor else float(mean_kl.item())
+
+    p_flat, t_flat = _prepare_saliency_inputs(s_pred, s_target, valid_mask)
+    device_type = s_pred.device.type if s_pred.device.type in ("cuda", "cpu") else "cpu"
+    with torch.autocast(device_type=device_type, enabled=False):
+        p_clamped = torch.clamp(p_flat, min=0.0)
+        t_clamped = torch.clamp(t_flat, min=0.0)
+
+        sum_t = t_clamped.sum()
+        sum_p = p_clamped.sum()
+
+        if sum_t <= 0.0 and sum_p <= 0.0:
+            kl = torch.tensor(0.0, device=p_flat.device, dtype=torch.float32)
+        elif torch.allclose(p_clamped, t_clamped, atol=1e-7):
+            kl = torch.tensor(0.0, device=p_flat.device, dtype=torch.float32)
+        else:
+            P = t_clamped / (sum_t + eps)
+            Q = p_clamped / (sum_p + eps)
+
+            ratio = P / (Q + eps) + eps
+            kl = torch.sum(P * torch.log(torch.clamp(ratio, min=eps)))
+            kl = torch.clamp(kl, min=0.0)
+
+    if as_tensor:
+        return kl
+    return float(kl.item())
+
+
+def compute_auc_judd(
+    s_pred: torch.Tensor,
+    s_target_or_fixation: torch.Tensor,
+    valid_mask: torch.Tensor | None = None,
+    *,
+    threshold: float = 0.5,
+    as_tensor: bool = False,
+) -> float | torch.Tensor:
+    r"""Computes Area Under ROC Curve (AUC-Judd) using trapezoidal integration.
+
+    Evaluates discriminatory power of predicted saliency relative to binary fixation
+    or binarized target saliency. Handles ties gracefully via distinct score thresholds.
+    When batched inputs (:math:`B > 1`) are supplied, evaluates AUC per sample independently
+    and returns the mean across the batch.
+
+    Args:
+        s_pred: Predicted visual saliency map in [0, 1].
+        s_target_or_fixation: Binary fixation map or continuous target saliency map.
+        valid_mask: Optional boolean or float mask indicating valid unpadded regions.
+        threshold: Binarization threshold applied to continuous target saliency (default 0.5).
+        as_tensor: If True, returns scalar torch.Tensor; otherwise returns float.
+
+    Returns:
+        Scalar AUC-Judd value in [0.0, 1.0].
+    """
+    if not isinstance(s_pred, torch.Tensor):
+        raise TypeError(f"s_pred must be a torch.Tensor, got {type(s_pred)}")
+    if not isinstance(s_target_or_fixation, torch.Tensor):
+        raise TypeError(f"s_target_or_fixation must be a torch.Tensor, got {type(s_target_or_fixation)}")
+    if valid_mask is not None and not isinstance(valid_mask, torch.Tensor):
+        raise TypeError(f"valid_mask must be a torch.Tensor, got {type(valid_mask)}")
+
+    if s_pred.ndim >= 3 and s_pred.shape[0] > 1:
+        b = s_pred.shape[0]
+        vals = []
+        for i in range(b):
+            m_i = (
+                valid_mask[i]
+                if (valid_mask is not None and valid_mask.ndim >= 3 and valid_mask.shape[0] == b)
+                else valid_mask
+            )
+            t_i = (
+                s_target_or_fixation[i]
+                if (s_target_or_fixation.ndim >= 3 and s_target_or_fixation.shape[0] == b)
+                else s_target_or_fixation
+            )
+            vals.append(
+                compute_auc_judd(
+                    s_pred[i],
+                    t_i,
+                    valid_mask=m_i,
+                    threshold=threshold,
+                    as_tensor=True,
+                )
+            )
+        mean_auc = torch.stack(vals).mean()
+        return mean_auc if as_tensor else float(mean_auc.item())
+
+    scores, target = _prepare_saliency_inputs(s_pred, s_target_or_fixation, valid_mask)
+    device_type = s_pred.device.type if s_pred.device.type in ("cuda", "cpu") else "cpu"
+    with torch.autocast(device_type=device_type, enabled=False):
+        y_true = (target >= threshold).float()
+        n_pos = y_true.sum()
+        n_neg = (1.0 - y_true).sum()
+
+        if n_pos <= 0 or n_neg <= 0:
+            auc = torch.tensor(0.5, device=scores.device, dtype=torch.float32)
+        else:
+            sorted_idx = torch.argsort(scores, descending=True)
+            scores_sorted = scores[sorted_idx]
+            labels_sorted = y_true[sorted_idx]
+
+            distinct_mask = torch.empty(scores.shape[0], dtype=torch.bool, device=scores.device)
+            distinct_mask[:-1] = scores_sorted[1:] != scores_sorted[:-1]
+            distinct_mask[-1] = True
+
+            tp = torch.cumsum(labels_sorted, dim=0)[distinct_mask]
+            fp = torch.cumsum(1.0 - labels_sorted, dim=0)[distinct_mask]
+
+            tpr = torch.cat([torch.zeros(1, device=scores.device), tp / n_pos])
+            fpr = torch.cat([torch.zeros(1, device=scores.device), fp / n_neg])
+
+            auc = torch.trapezoid(tpr, fpr)
+            auc = torch.clamp(auc, min=0.0, max=1.0)
+
+    if as_tensor:
+        return auc
+    return float(auc.item())
+
+
+def evaluate_representation_quality(
+    s_pred: torch.Tensor,
+    s_target: torch.Tensor,
+    valid_mask: torch.Tensor | None = None,
+    *,
+    cc_threshold: float = 0.60,
+    kl_threshold: float = 0.50,
+) -> dict[str, Any]:
+    r"""Evaluates representation quality metrics and verifies the quality gate.
+
+    Quality gate:
+        passed = (CC >= cc_threshold) and (KL <= kl_threshold)
+
+    Args:
+        s_pred: Predicted visual saliency map in [0, 1].
+        s_target: Ground truth target saliency or fixation map in [0, 1].
+        valid_mask: Optional boolean or float mask of valid unpadded regions.
+        cc_threshold: Minimum acceptable Pearson CC (default 0.60).
+        kl_threshold: Maximum acceptable KL divergence (default 0.50).
+
+    Returns:
+        dict: Breakdown containing 'cc', 'kl', 'auc_judd', 'passed', 'cc_threshold', 'kl_threshold'.
+    """
+    cc_val = float(compute_correlation_coefficient(s_pred, s_target, valid_mask=valid_mask))
+    kl_val = float(compute_kl_divergence(s_pred, s_target, valid_mask=valid_mask))
+    auc_val = float(compute_auc_judd(s_pred, s_target, valid_mask=valid_mask))
+
+    passed = bool(cc_val >= cc_threshold and kl_val <= kl_threshold)
+
+    return {
+        "cc": cc_val,
+        "kl": kl_val,
+        "auc_judd": auc_val,
+        "passed": passed,
+        "cc_threshold": float(cc_threshold),
+        "kl_threshold": float(kl_threshold),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -702,3 +1074,18 @@ class MLflowTracker:
                 self.log_metrics(numeric_metrics, step=step)
 
         return saved_path
+
+
+__all__ = [
+    "MLflowTracker",
+    "compute_auc_judd",
+    "compute_bpp",
+    "compute_correlation_coefficient",
+    "compute_kl_divergence",
+    "compute_mse",
+    "compute_msssim",
+    "compute_psnr",
+    "evaluate_representation_quality",
+    "load_checkpoint",
+    "save_checkpoint",
+]
