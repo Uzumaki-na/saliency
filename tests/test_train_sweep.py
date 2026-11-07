@@ -145,8 +145,8 @@ class TestSweepConfigAndArgs:
 
     def test_invalid_model_rejection(self) -> None:
         """Invalid model names raise ValueError."""
-        with pytest.raises(ValueError, match="Invalid model 'C'"):
-            SweepConfig(models=["C"])
+        with pytest.raises(ValueError, match="Invalid model 'INVALID'"):
+            SweepConfig(models=["INVALID"])
 
         with pytest.raises(ValueError, match="models list must not be empty"):
             SweepConfig(models=[])

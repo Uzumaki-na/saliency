@@ -1,7 +1,9 @@
-"""End-to-end training and validation loop CLI for Model A and Model B.
+"""End-to-end training and validation loop CLI for learned image compression (Models A, B, C, D, and C-Transmitted).
 
 Supports:
-- CLI and programmatic training for Model A (uniform MSE) and Model B (saliency-weighted distortion).
+- CLI and programmatic training for Model A (uniform MSE), Model B (implicit saliency-weighted distortion),
+  Model C (explicit dual-head adaptive allocation with auxiliary loss), Model D (mechanism-only allocation control),
+  and Model C-Transmitted (transmitted compressed saliency thumbnail sidecar control).
 - DualOptimizerHarness optimization with Adam optimizers (main lr=5e-5, aux lr=1e-3), cosine LR scheduling,
   and gradient norm clipping (max_norm=1.0).
 - Gradient accumulation over mini-batches (e.g. batch_size=2, accum_steps=2 -> effective batch size 4),
@@ -44,10 +46,14 @@ import torch  # noqa: E402
 import torch.nn as nn  # noqa: E402
 from torch.utils.data import DataLoader  # noqa: E402
 
-from src.codec.model_a import ModelA  # noqa: E402
-from src.codec.model_b import ModelB, load_pretrained_bmshj2018  # noqa: E402
+from src.codec.model_b import load_pretrained_bmshj2018  # noqa: E402
 from src.data.dataset import SaliencyImageDataset, create_saliency_dataloader  # noqa: E402
-from src.data.padding import PadBounds, pad_symmetric_centered, unpad_centered  # noqa: E402
+from src.data.padding import (  # noqa: E402
+    PadBounds,
+    compute_latent_valid_mask,
+    pad_symmetric_centered,
+    unpad_centered,
+)
 from src.training.loss import RateDistortionLoss  # noqa: E402
 from src.training.optimizer import DualOptimizerHarness, create_dual_optimizer  # noqa: E402
 from src.training.tracker import (  # noqa: E402
@@ -72,6 +78,7 @@ class TrainingConfig:
 
     model: str = "A"
     lmbda: float = 0.0130
+    lambda_aux: float = 0.1
     epochs: int = 100
     batch_size: int = 2
     accum_steps: int = 2
@@ -83,6 +90,8 @@ class TrainingConfig:
     seed: int = 42
     checkpoint_dir: str | Path = "checkpoints"
     pretrained_checkpoint: str | Path | None = None
+    baseline_checkpoint: str | Path | None = None
+    baseline_z_bpp: float | None = None
     clip_max_norm: float | None = 1.0
     train_dataset: str = "div2k"
     val_dataset: str = "kodak"
@@ -115,6 +124,26 @@ class TrainingConfig:
             raise ValueError(f"Invalid best_metric '{self.best_metric}'. Expected 'loss' or 'psnr'.")
         self.best_metric = norm_metric
 
+        norm_m = str(self.model).upper().strip()
+        valid_models = {
+            "A": "A",
+            "MODELA": "A",
+            "B": "B",
+            "MODELB": "B",
+            "C": "C",
+            "MODELC": "C",
+            "D": "D",
+            "MODELD": "D",
+            "C-TRANSMITTED": "C-Transmitted",
+            "CTRANSMITTED": "C-Transmitted",
+            "MODELC-TRANSMITTED": "C-Transmitted",
+            "MODELCTRANSMITTED": "C-Transmitted",
+            "4": "C-Transmitted",
+        }
+        if norm_m not in valid_models:
+            raise ValueError(f"Invalid model '{self.model}'. Expected one of ('A', 'B', 'C', 'D', 'C-Transmitted').")
+        self.model = valid_models[norm_m]
+
     @classmethod
     def from_namespace(cls, args: argparse.Namespace) -> TrainingConfig:
         """Construct TrainingConfig from parsed argparse.Namespace."""
@@ -132,6 +161,8 @@ class TrainingConfig:
             k = raw_k.replace("-", "_")
             if k in ("lambda", "lambda_rd"):
                 k = "lmbda"
+            elif k in ("lambda_saliency_aux", "aux_lambda"):
+                k = "lambda_aux"
             elif k == "crop_size":
                 k = "patch_size"
             normalized[k] = v
@@ -182,29 +213,45 @@ def setup_model(
     pretrained_checkpoint: str | Path | None = None,
     device: torch.device | str = "cpu",
 ) -> nn.Module:
-    """Instantiate and optionally warm-start Model A or Model B.
+    """Instantiate and optionally warm-start Model A, B, C, D, or C-Transmitted.
 
     Args:
-        model_type: 'A' for baseline uniform MSE model; 'B' for implicit saliency-weighted model.
+        model_type: 'A', 'B', 'C', 'D', or 'C-Transmitted'.
         n_channels: Hyper-prior bottleneck channel dimension (default: 128).
         m_channels: Latent transform channel dimension (default: 192).
         pretrained_checkpoint: Optional path to checkpoint (.pt) on disk to warm-start weights.
         device: Target execution device.
 
     Returns:
-        Configured ModelA or ModelB instance moved to device.
+        Configured model instance moved to device.
 
     Raises:
-        ValueError: If model_type is not 'A' or 'B'.
+        ValueError: If model_type is unsupported.
         FileNotFoundError: If pretrained_checkpoint is specified but does not exist on disk.
     """
+    from src.bitstream.container import create_model
+
     norm_type = str(model_type).upper().strip()
-    if norm_type in ("A", "MODELA"):
-        model: nn.Module = ModelA(n_channels=n_channels, m_channels=m_channels)
-    elif norm_type in ("B", "MODELB"):
-        model = ModelB(n_channels=n_channels, m_channels=m_channels)
-    else:
-        raise ValueError(f"Invalid model '{model_type}'. Expected 'A' or 'B'.")
+    valid_map = {
+        "A": "A",
+        "MODELA": "A",
+        "B": "B",
+        "MODELB": "B",
+        "C": "C",
+        "MODELC": "C",
+        "D": "D",
+        "MODELD": "D",
+        "C-TRANSMITTED": "C-Transmitted",
+        "CTRANSMITTED": "C-Transmitted",
+        "MODELC-TRANSMITTED": "C-Transmitted",
+        "MODELCTRANSMITTED": "C-Transmitted",
+        "4": "C-Transmitted",
+    }
+    if norm_type not in valid_map:
+        raise ValueError(f"Invalid model '{model_type}'. Expected one of ('A', 'B', 'C', 'D', 'C-Transmitted').")
+
+    canonical_type = valid_map[norm_type]
+    model = create_model(canonical_type, n_channels=n_channels, m_channels=m_channels)
 
     dev = torch.device(device)
     model.to(dev)
@@ -213,8 +260,8 @@ def setup_model(
         ckpt_path = Path(pretrained_checkpoint)
         if not ckpt_path.is_file():
             raise FileNotFoundError(f"Pretrained checkpoint not found at: {ckpt_path}")
-        load_pretrained_bmshj2018(ckpt_path, model=model, device=dev)
-        logger.info("Successfully loaded pretrained weights from %s", ckpt_path)
+        load_pretrained_bmshj2018(ckpt_path, model=model, device=dev, strict=False)
+        logger.info("Successfully loaded pretrained weights from %s into %s", ckpt_path, canonical_type)
 
     return model
 
@@ -329,8 +376,12 @@ def train_one_epoch(
 
     total_loss = 0.0
     total_bpp = 0.0
+    total_z_bpp = 0.0
+    total_y_bpp = 0.0
+    total_sidecar_bpp = 0.0
     total_mse = 0.0
     total_distortion = 0.0
+    total_aux_loss = 0.0
     num_samples = 0
 
     optimizer_harness.zero_grad_main()
@@ -351,17 +402,31 @@ def train_one_epoch(
         if s is not None:
             s = s.to(dev)
 
-        # Enforce saliency requirement for Model B
-        if norm_type in ("B", "MODELB"):
+        # Enforce saliency requirement and model forward dispatch
+        if "TRANSMITTED" in norm_type or norm_type == "4":
+            if s is None:
+                raise ValueError(
+                    "Model C-Transmitted requires visual saliency maps, but received s=None in training batch."
+                )
+            out = model(x, s=s, training=True)
+            loss_input_s = s
+        elif norm_type in ("B", "MODELB"):
             if s is None:
                 raise ValueError("Model B requires visual saliency maps, but received s=None in training batch.")
+            out = model(x, training=True)
+            loss_input_s = s
+        elif norm_type in ("C", "MODELC", "D", "MODELD"):
+            if s is None:
+                raise ValueError(
+                    f"Model {norm_type} requires visual saliency maps, but received s=None in training batch."
+                )
+            out = model(x, training=True)
             loss_input_s = s
         else:
             # Model A is strictly uniform MSE: do not pass saliency map to loss
+            out = model(x, training=True)
             loss_input_s = None
 
-        # Forward pass in training mode (noise relaxation applied to latents)
-        out = model(x, training=True)
         loss_dict = criterion(out, x, s=loss_input_s)
 
         raw_loss = loss_dict["loss"]
@@ -393,33 +458,54 @@ def train_one_epoch(
             global_step += 1
 
             if tracker is not None and tracker.active_run is not None:
-                tracker.log_metrics(
-                    {
-                        "train/step_loss": float(raw_loss.item()),
-                        "train/step_bpp": float(loss_dict["bpp_loss"].item()),
-                        "train/step_mse": float(loss_dict["mse_loss"].item()),
-                        "train/step_distortion": float(loss_dict["distortion"].item()),
-                        "train/grad_norm": float(grad_norm) if grad_norm is not None else 0.0,
-                        "train/lr": float(optimizer_harness.main_lr) if optimizer_harness.main_lr is not None else 0.0,
-                    },
-                    step=global_step,
-                )
+                step_dict = {
+                    "train/step_loss": float(raw_loss.item()),
+                    "train/step_bpp": float(loss_dict["bpp_loss"].item()),
+                    "train/step_z_bpp": float(loss_dict["z_bpp"].item()),
+                    "train/step_y_bpp": float(loss_dict["y_bpp"].item()),
+                    "train/step_mse": float(loss_dict["mse_loss"].item()),
+                    "train/step_distortion": float(loss_dict["distortion"].item()),
+                    "train/step_aux_loss": float(loss_dict["aux_loss"].item()),
+                    "train/grad_norm": float(grad_norm) if grad_norm is not None else 0.0,
+                    "train/lr": float(optimizer_harness.main_lr) if optimizer_harness.main_lr is not None else 0.0,
+                }
+                if loss_dict.get("sidecar_bpp") is not None:
+                    step_dict["train/step_sidecar_bpp"] = float(loss_dict["sidecar_bpp"].item())
+                tracker.log_metrics(step_dict, step=global_step)
 
         b_size = x.shape[0]
         total_loss += float(raw_loss.item()) * b_size
         total_bpp += float(loss_dict["bpp_loss"].item()) * b_size
+        total_z_bpp += float(loss_dict["z_bpp"].item()) * b_size
+        total_y_bpp += float(loss_dict["y_bpp"].item()) * b_size
         total_mse += float(loss_dict["mse_loss"].item()) * b_size
         total_distortion += float(loss_dict["distortion"].item()) * b_size
+        total_aux_loss += float(loss_dict["aux_loss"].item()) * b_size
+        if loss_dict.get("sidecar_bpp") is not None:
+            total_sidecar_bpp += float(loss_dict["sidecar_bpp"].item()) * b_size
         num_samples += b_size
 
     if num_samples == 0:
-        return {"loss": 0.0, "bpp": 0.0, "mse": 0.0, "distortion": 0.0}, global_step
+        return {
+            "loss": 0.0,
+            "bpp": 0.0,
+            "z_bpp": 0.0,
+            "y_bpp": 0.0,
+            "sidecar_bpp": 0.0,
+            "mse": 0.0,
+            "distortion": 0.0,
+            "aux_loss": 0.0,
+        }, global_step
 
     avg_metrics = {
         "loss": total_loss / num_samples,
         "bpp": total_bpp / num_samples,
+        "z_bpp": total_z_bpp / num_samples,
+        "y_bpp": total_y_bpp / num_samples,
+        "sidecar_bpp": total_sidecar_bpp / num_samples if total_sidecar_bpp > 0 else 0.0,
         "mse": total_mse / num_samples,
         "distortion": total_distortion / num_samples,
+        "aux_loss": total_aux_loss / num_samples,
     }
     return avg_metrics, global_step
 
@@ -431,6 +517,7 @@ def evaluate(
     device: torch.device | str = "cpu",
     model_type: str = "A",
     pad_factor: int = 64,
+    baseline_z_bpp: float | None = None,
 ) -> dict[str, float]:
     """Executes deterministic evaluation over unaligned test images (e.g. Kodak 24-image benchmark).
 
@@ -445,11 +532,13 @@ def evaluate(
         dataloader: Validation/test dataloader (typically batch_size=1).
         criterion: RateDistortionLoss instance.
         device: Device to execute computation on.
-        model_type: 'A' (uniform MSE) or 'B' (saliency-weighted distortion).
+        model_type: 'A', 'B', 'C', 'D', or 'C-Transmitted'.
         pad_factor: Spatial dimension multiple to align to (default: 64).
+        baseline_z_bpp: Optional baseline Model A hyperprior BPP for delta_bpp_z calculation.
 
     Returns:
-        dict[str, float]: Evaluation metrics (loss, bpp, mse, psnr, msssim, distortion).
+        dict[str, float]: Evaluation metrics (loss, bpp, z_bpp, y_bpp, mse, psnr,
+            msssim, distortion, aux_loss, delta_bpp_z).
     """
     model.eval()
     dev = torch.device(device)
@@ -457,10 +546,14 @@ def evaluate(
 
     total_loss = 0.0
     total_bpp = 0.0
+    total_z_bpp = 0.0
+    total_y_bpp = 0.0
+    total_sidecar_bpp = 0.0
     total_mse = 0.0
     total_psnr = 0.0
     total_msssim = 0.0
     total_distortion = 0.0
+    total_aux_loss = 0.0
     num_samples = 0
 
     with torch.no_grad():
@@ -484,12 +577,36 @@ def evaluate(
             # Pad spatial dimensions to multiples of 64 if needed
             if orig_h % pad_factor != 0 or orig_w % pad_factor != 0:
                 x_pad, bounds = pad_symmetric_centered(x, factor=pad_factor)
+                if s is not None:
+                    s_pad, _ = pad_symmetric_centered(s, factor=pad_factor, pad_bounds=bounds)
+                else:
+                    s_pad = None
             else:
                 x_pad = x
+                s_pad = s
                 bounds = PadBounds(0, 0, 0, 0)
 
+            valid_latent_mask = compute_latent_valid_mask(orig_shape=(orig_h, orig_w), pad_bounds=bounds, device=dev)
+
             # Deterministic forward pass with integer rounding
-            out = model(x_pad, training=False)
+            if "TRANSMITTED" in norm_type or norm_type == "4":
+                if s is None:
+                    raise ValueError("Model C-Transmitted requires visual saliency maps during evaluation.")
+                out = model(x_pad, s=s_pad, valid_mask=valid_latent_mask, training=False)
+                loss_input_s = s
+            elif norm_type in ("C", "MODELC", "D", "MODELD"):
+                if s is None:
+                    raise ValueError(f"Model {norm_type} requires visual saliency maps during evaluation.")
+                out = model(x_pad, valid_mask=valid_latent_mask, training=False)
+                loss_input_s = s
+            elif norm_type in ("B", "MODELB"):
+                if s is None:
+                    raise ValueError("Model B requires visual saliency maps during evaluation.")
+                out = model(x_pad, training=False)
+                loss_input_s = s
+            else:
+                out = model(x_pad, training=False)
+                loss_input_s = None
 
             # Recover unpadded reconstruction slice matching original image dimensions
             x_hat_unpad = unpad_centered(out.x_hat, bounds)
@@ -498,19 +615,25 @@ def evaluate(
             b = x.shape[0]
             num_orig_pixels = b * orig_h * orig_w
 
-            # Loss evaluation: Model B requires saliency map; Model A is strictly uniform MSE
-            if norm_type in ("B", "MODELB"):
-                if s is None:
-                    raise ValueError("Model B requires visual saliency maps, but received s=None during evaluation.")
-                loss_input_s = s
-            else:
-                loss_input_s = None
+            eval_dict: dict[str, Any] = {
+                "x_hat": x_hat_unpad,
+                "y_likelihoods": out.y_likelihoods,
+                "z_likelihoods": out.z_likelihoods,
+            }
+            if hasattr(out, "s_pred"):
+                eval_dict["s_pred"] = out.s_pred
+            if hasattr(out, "sidecar_bpp"):
+                if hasattr(out, "sidecar_bytes"):
+                    from src.codec.model_c_transmitted import compute_sidecar_bpp
+
+                    eval_dict["sidecar_bpp"] = compute_sidecar_bpp(
+                        out.sidecar_bytes, num_orig_pixels, device=dev, as_tensor=True
+                    )
+                else:
+                    eval_dict["sidecar_bpp"] = out.sidecar_bpp
+
             loss_dict = criterion(
-                dict(
-                    x_hat=x_hat_unpad,
-                    y_likelihoods=out.y_likelihoods,
-                    z_likelihoods=out.z_likelihoods,
-                ),
+                eval_dict,
                 x,
                 s=loss_input_s,
                 target_num_pixels=num_orig_pixels,
@@ -526,14 +649,24 @@ def evaluate(
 
             loss_val = float(loss_dict["loss"].item())
             bpp_val = float(loss_dict["bpp_loss"].item())
+            z_bpp_val = float(loss_dict["z_bpp"].item())
+            y_bpp_val = float(loss_dict["y_bpp"].item())
+            sidecar_bpp_val = (
+                float(loss_dict["sidecar_bpp"].item()) if loss_dict.get("sidecar_bpp") is not None else 0.0
+            )
             dist_val = float(loss_dict["distortion"].item())
+            aux_val = float(loss_dict["aux_loss"].item())
 
             total_loss += loss_val * b
             total_bpp += bpp_val * b
+            total_z_bpp += z_bpp_val * b
+            total_y_bpp += y_bpp_val * b
+            total_sidecar_bpp += sidecar_bpp_val * b
             total_mse += mse_val * b
             total_psnr += psnr_val * b
             total_msssim += msssim_val * b
             total_distortion += dist_val * b
+            total_aux_loss += aux_val * b
             num_samples += b
 
     if num_samples == 0:
@@ -541,32 +674,50 @@ def evaluate(
             "loss": 0.0,
             "bpp": 0.0,
             "bpp_loss": 0.0,
+            "z_bpp": 0.0,
+            "y_bpp": 0.0,
+            "sidecar_bpp": 0.0,
             "mse": 0.0,
             "mse_loss": 0.0,
             "psnr": 0.0,
             "msssim": 0.0,
             "ms_ssim": 0.0,
             "distortion": 0.0,
+            "aux_loss": 0.0,
         }
 
     avg_loss = total_loss / num_samples
     avg_bpp = total_bpp / num_samples
+    avg_z_bpp = total_z_bpp / num_samples
+    avg_y_bpp = total_y_bpp / num_samples
+    avg_sidecar_bpp = total_sidecar_bpp / num_samples if total_sidecar_bpp > 0 else 0.0
     avg_mse = total_mse / num_samples
     avg_psnr = total_psnr / num_samples
     avg_msssim = total_msssim / num_samples
     avg_dist = total_distortion / num_samples
+    avg_aux = total_aux_loss / num_samples
 
-    return {
+    result_dict: dict[str, float] = {
         "loss": avg_loss,
         "bpp": avg_bpp,
         "bpp_loss": avg_bpp,
+        "z_bpp": avg_z_bpp,
+        "y_bpp": avg_y_bpp,
+        "sidecar_bpp": avg_sidecar_bpp,
         "mse": avg_mse,
         "mse_loss": avg_mse,
         "psnr": avg_psnr,
         "msssim": avg_msssim,
         "ms_ssim": avg_msssim,
         "distortion": avg_dist,
+        "aux_loss": avg_aux,
     }
+    if baseline_z_bpp is not None:
+        from src.training.loss import compute_hyperprior_overhead
+
+        result_dict["delta_bpp_z"] = float(compute_hyperprior_overhead(avg_z_bpp, baseline_z_bpp))
+
+    return result_dict
 
 
 # ---------------------------------------------------------------------------
@@ -640,7 +791,41 @@ def train(
     )
 
     # 3. Setup Criterion
-    criterion = RateDistortionLoss(lmbda=config.lmbda)
+    norm_type = str(config.model).upper().strip()
+    saliency_weighting = norm_type in (
+        "B",
+        "MODELB",
+        "C",
+        "MODELC",
+        "C-TRANSMITTED",
+        "CTRANSMITTED",
+        "MODELC-TRANSMITTED",
+        "MODELCTRANSMITTED",
+        "4",
+    )
+    criterion = RateDistortionLoss(
+        lmbda=config.lmbda,
+        lambda_aux=config.lambda_aux,
+        saliency_weighting=saliency_weighting,
+    )
+
+    baseline_z_bpp = config.baseline_z_bpp
+    if baseline_z_bpp is None and config.baseline_checkpoint is not None:
+        ckpt_path = Path(config.baseline_checkpoint)
+        if ckpt_path.is_file():
+            try:
+                base_ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+                metrics = base_ckpt.get("metrics") or base_ckpt.get("val_metrics")
+                if isinstance(metrics, dict) and "z_bpp" in metrics:
+                    baseline_z_bpp = float(metrics["z_bpp"])
+                else:
+                    logger.warning(
+                        "Could not find 'z_bpp' under 'metrics' or 'val_metrics' in baseline checkpoint %s", ckpt_path
+                    )
+            except Exception as e:
+                logger.warning("Could not read baseline z_bpp from %s: %s", ckpt_path, e)
+        else:
+            logger.warning("Baseline checkpoint does not exist: %s", ckpt_path)
 
     # 4. Setup Optimizer & Scheduler
     optimizer_harness = create_dual_optimizer(
@@ -722,6 +907,7 @@ def train(
                 criterion=criterion,
                 device=dev,
                 model_type=config.model,
+                baseline_z_bpp=baseline_z_bpp,
             )
 
             # Step learning rate schedulers at epoch boundary
@@ -731,34 +917,52 @@ def train(
                 "epoch": epoch,
                 "train_loss": train_metrics["loss"],
                 "train_bpp": train_metrics["bpp"],
+                "train_z_bpp": train_metrics.get("z_bpp", 0.0),
+                "train_y_bpp": train_metrics.get("y_bpp", 0.0),
                 "train_mse": train_metrics["mse"],
                 "train_distortion": train_metrics["distortion"],
+                "train_aux_loss": train_metrics.get("aux_loss", 0.0),
                 "val_loss": val_metrics["loss"],
                 "val_bpp": val_metrics["bpp"],
+                "val_z_bpp": val_metrics.get("z_bpp", 0.0),
+                "val_y_bpp": val_metrics.get("y_bpp", 0.0),
                 "val_mse": val_metrics["mse"],
                 "val_psnr": val_metrics["psnr"],
                 "val_msssim": val_metrics["msssim"],
+                "val_aux_loss": val_metrics.get("aux_loss", 0.0),
                 "lr": optimizer_harness.main_lr,
             }
+            if val_metrics.get("delta_bpp_z") is not None:
+                epoch_record["val_delta_bpp_z"] = val_metrics["delta_bpp_z"]
             history.append(epoch_record)
 
             # Log epoch metrics to MLflow
             if tracker is not None and tracker.active_run is not None:
-                tracker.log_metrics(
-                    {
-                        "train/epoch_loss": train_metrics["loss"],
-                        "train/epoch_bpp": train_metrics["bpp"],
-                        "train/epoch_mse": train_metrics["mse"],
-                        "train/epoch_distortion": train_metrics["distortion"],
-                        "val/loss": val_metrics["loss"],
-                        "val/bpp": val_metrics["bpp"],
-                        "val/mse": val_metrics["mse"],
-                        "val/psnr": val_metrics["psnr"],
-                        "val/msssim": val_metrics["msssim"],
-                        "lr": optimizer_harness.main_lr or 0.0,
-                    },
-                    step=epoch,
-                )
+                log_data = {
+                    "train/epoch_loss": train_metrics["loss"],
+                    "train/epoch_bpp": train_metrics["bpp"],
+                    "train/epoch_z_bpp": train_metrics.get("z_bpp", 0.0),
+                    "train/epoch_y_bpp": train_metrics.get("y_bpp", 0.0),
+                    "train/epoch_mse": train_metrics["mse"],
+                    "train/epoch_distortion": train_metrics["distortion"],
+                    "train/epoch_aux_loss": train_metrics.get("aux_loss", 0.0),
+                    "val/loss": val_metrics["loss"],
+                    "val/bpp": val_metrics["bpp"],
+                    "val/z_bpp": val_metrics.get("z_bpp", 0.0),
+                    "val/y_bpp": val_metrics.get("y_bpp", 0.0),
+                    "val/mse": val_metrics["mse"],
+                    "val/psnr": val_metrics["psnr"],
+                    "val/msssim": val_metrics["msssim"],
+                    "val/aux_loss": val_metrics.get("aux_loss", 0.0),
+                    "lr": optimizer_harness.main_lr or 0.0,
+                }
+                if val_metrics.get("delta_bpp_z") is not None:
+                    log_data["val/delta_bpp_z"] = val_metrics["delta_bpp_z"]
+                if train_metrics.get("sidecar_bpp") is not None and train_metrics["sidecar_bpp"] > 0:
+                    log_data["train/epoch_sidecar_bpp"] = train_metrics["sidecar_bpp"]
+                if val_metrics.get("sidecar_bpp") is not None and val_metrics["sidecar_bpp"] > 0:
+                    log_data["val/sidecar_bpp"] = val_metrics["sidecar_bpp"]
+                tracker.log_metrics(log_data, step=epoch)
 
             # Best Checkpoint Tracking: Overwrite best only on improvement
             is_better = False
@@ -843,7 +1047,7 @@ def train(
 
 
 def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
-    """Builds and parses CLI arguments for Model A and Model B training."""
+    """Builds and parses CLI arguments for learned image compression model training."""
     parser = argparse.ArgumentParser(
         description="End-to-end training and validation loop CLI for learned image compression."
     )
@@ -851,8 +1055,7 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         "--model",
         type=str,
         required=True,
-        choices=["A", "B", "a", "b", "ModelA", "ModelB"],
-        help="Model architecture: 'A' (uniform MSE) or 'B' (saliency-weighted implicit allocation).",
+        help="Model architecture: 'A', 'B', 'C', 'D', or 'C-Transmitted'.",
     )
     parser.add_argument(
         "--lambda",
@@ -862,6 +1065,25 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         type=float,
         default=0.0130,
         help="Rate-distortion trade-off parameter lambda (default: 0.0130).",
+    )
+    parser.add_argument(
+        "--lambda-aux",
+        dest="lambda_aux",
+        type=float,
+        default=0.1,
+        help="Auxiliary saliency loss weight lambda_aux (default: 0.1).",
+    )
+    parser.add_argument(
+        "--baseline-checkpoint",
+        type=str,
+        default=None,
+        help="Path to Model A baseline checkpoint for delta_bpp_z calculation.",
+    )
+    parser.add_argument(
+        "--baseline-z-bpp",
+        type=float,
+        default=None,
+        help="Baseline hyperprior rate for delta_bpp_z calculation.",
     )
     parser.add_argument(
         "--epochs",
@@ -1023,6 +1245,26 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     parsed = parser.parse_args(args)
     if parsed.accum_steps <= 0:
         raise ValueError(f"accum_steps must be >= 1, got {parsed.accum_steps}")
+
+    norm_m = parsed.model.upper().strip()
+    valid_models = {
+        "A": "A",
+        "MODELA": "A",
+        "B": "B",
+        "MODELB": "B",
+        "C": "C",
+        "MODELC": "C",
+        "D": "D",
+        "MODELD": "D",
+        "C-TRANSMITTED": "C-Transmitted",
+        "CTRANSMITTED": "C-Transmitted",
+        "MODELC-TRANSMITTED": "C-Transmitted",
+        "MODELCTRANSMITTED": "C-Transmitted",
+        "4": "C-Transmitted",
+    }
+    if norm_m not in valid_models:
+        parser.error(f"Invalid model '{parsed.model}'. Expected one of ('A', 'B', 'C', 'D', 'C-Transmitted').")
+    parsed.model = valid_models[norm_m]
     return parsed
 
 

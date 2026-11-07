@@ -222,9 +222,9 @@ class TestCLIArgumentParsing:
             TrainingConfig(best_metric="invalid")
 
     def test_cli_parser_invalid_model_choice_raises_system_exit(self) -> None:
-        """Argparse rejects invalid model names outside choices {A, B}."""
+        """Argparse rejects invalid model names outside supported choices."""
         with pytest.raises(SystemExit):
-            parse_args(["--model", "C"])
+            parse_args(["--model", "INVALID"])
 
     def test_training_config_from_namespace_and_dict(self) -> None:
         """TrainingConfig dataclass converts cleanly from namespace and dictionary."""

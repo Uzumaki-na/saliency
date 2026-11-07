@@ -1,15 +1,15 @@
-"""Multi-rate training sweep orchestrator for Model A and Model B.
+"""Multi-rate training sweep orchestrator for learned compression models (Models A, B, C, D, and C-Transmitted).
 
 Orchestrates sequential multi-rate training across standard rate points (lambdas),
 aggregates validation metrics, and produces:
-- sweep_results.json (structured JSON metrics)
+- sweep_results.json (structured JSON metrics with net hyperprior overhead Delta BPP_z)
 - sweep_results.csv (CSV comparison table)
 - sweep_summary.md (Markdown comparison table)
 - rd_curve.png (matplotlib rate-distortion curves: PSNR vs. BPP and MS-SSIM vs. BPP)
 
 Usage:
     python scripts/train_sweep.py --dry-run
-    python scripts/train_sweep.py --models A B --lambdas 0.0018 0.0035 0.0067 0.0130 0.0250 0.0483
+    python scripts/train_sweep.py --models A B C D C-Transmitted --lambdas 0.0067 0.0130 0.0250 0.0483
 """
 
 from __future__ import annotations
@@ -49,11 +49,17 @@ DEFAULT_MODELS: tuple[str, ...] = ("A", "B")
 MODEL_DISPLAY_NAMES: dict[str, str] = {
     "A": "Model A (Uniform MSE)",
     "B": "Model B (Saliency-Weighted)",
+    "C": "Model C (Explicit Allocation)",
+    "D": "Model D (Mechanism-Only)",
+    "C-TRANSMITTED": "Model C-Transmitted (Sidecar Control)",
 }
 
 MODEL_PLOT_STYLES: dict[str, dict[str, Any]] = {
     "A": {"color": "#1f77b4", "marker": "o", "linestyle": "-"},
     "B": {"color": "#d62728", "marker": "s", "linestyle": "-"},
+    "C": {"color": "#2ca02c", "marker": "^", "linestyle": "-"},
+    "D": {"color": "#ff7f0e", "marker": "D", "linestyle": "--"},
+    "C-TRANSMITTED": {"color": "#9467bd", "marker": "v", "linestyle": "-."},
 }
 
 
@@ -68,6 +74,7 @@ class SweepConfig:
 
     models: list[str] = field(default_factory=lambda: list(DEFAULT_MODELS))
     lambdas: list[float] = field(default_factory=lambda: list(DEFAULT_LAMBDAS))
+    lambda_aux: float = 0.1
     output_dir: str | Path = "experiments/sweep_results"
     epochs: int = 100
     batch_size: int = 2
@@ -80,6 +87,8 @@ class SweepConfig:
     seed: int = 42
     checkpoint_dir: str | Path | None = None
     pretrained_checkpoint: str | Path | None = None
+    baseline_checkpoint: str | Path | None = None
+    baseline_z_bpp: float | None = None
     clip_max_norm: float | None = 1.0
     train_dataset: str = "div2k"
     val_dataset: str = "kodak"
@@ -113,14 +122,27 @@ class SweepConfig:
         if not self.models:
             raise ValueError("models list must not be empty.")
         normalized_models: list[str] = []
+        valid_models = {
+            "A": "A",
+            "MODELA": "A",
+            "B": "B",
+            "MODELB": "B",
+            "C": "C",
+            "MODELC": "C",
+            "D": "D",
+            "MODELD": "D",
+            "C-TRANSMITTED": "C-Transmitted",
+            "CTRANSMITTED": "C-Transmitted",
+            "MODELC-TRANSMITTED": "C-Transmitted",
+            "MODELCTRANSMITTED": "C-Transmitted",
+            "4": "C-Transmitted",
+        }
         for m in self.models:
             norm_m = str(m).upper().strip()
-            if norm_m in ("A", "MODELA"):
-                normalized_models.append("A")
-            elif norm_m in ("B", "MODELB"):
-                normalized_models.append("B")
+            if norm_m in valid_models:
+                normalized_models.append(valid_models[norm_m])
             else:
-                raise ValueError(f"Invalid model '{m}'. Expected 'A' or 'B'.")
+                raise ValueError(f"Invalid model '{m}'. Expected one of ('A', 'B', 'C', 'D', 'C-Transmitted').")
         self.models = normalized_models
 
         if not self.lambdas:
@@ -169,6 +191,8 @@ class SweepConfig:
                 elif isinstance(v, (list, tuple)):
                     normalized["lambdas"] = [float(x) for x in v]
                 continue
+            elif k in ("lambda_saliency_aux", "aux_lambda"):
+                k = "lambda_aux"
             elif k == "crop_size":
                 k = "patch_size"
             normalized[k] = v
@@ -231,7 +255,33 @@ def generate_summary_table(results: dict[str, Any] | list[dict[str, Any]]) -> st
     runs = _extract_runs(results)
     sorted_runs = _sort_runs(runs)
 
-    headers = ["Model", "Lambda", "BPP", "MSE", "PSNR (dB)", "MS-SSIM"]
+    has_extended = any(
+        (r.get("z_bpp") is not None or r.get("delta_bpp_z") is not None or r.get("aux_loss") is not None)
+        for r in sorted_runs
+    )
+
+    if has_extended:
+        headers = [
+            "Model",
+            "Lambda",
+            "BPP",
+            "z_BPP",
+            "Delta BPP_z",
+            "MSE",
+            "PSNR (dB)",
+            "MS-SSIM",
+            "Aux Loss",
+        ]
+    else:
+        headers = [
+            "Model",
+            "Lambda",
+            "BPP",
+            "MSE",
+            "PSNR (dB)",
+            "MS-SSIM",
+        ]
+
     header_line = f"| {' | '.join(headers)} |"
     sep_line = f"| {' | '.join(['---'] * len(headers))} |"
 
@@ -270,7 +320,37 @@ def generate_summary_table(results: dict[str, Any] | list[dict[str, Any]]) -> st
         except (ValueError, TypeError):
             msssim_str = "N/A"
 
-        row = f"| {model:<5} | {lmbda_str:<6} | {bpp_str:<6} | {mse_str:<8} | {psnr_str:<9} | {msssim_str:<7} |"
+        if has_extended:
+            z_bpp_val = r.get("z_bpp")
+            try:
+                z_bpp_str = (
+                    f"{float(z_bpp_val):.4f}" if (z_bpp_val is not None and not np.isnan(float(z_bpp_val))) else "N/A"
+                )
+            except (ValueError, TypeError):
+                z_bpp_str = "N/A"
+
+            delta_bpp_val = r.get("delta_bpp_z")
+            try:
+                delta_bpp_str = (
+                    f"{float(delta_bpp_val):+.4f}"
+                    if (delta_bpp_val is not None and not np.isnan(float(delta_bpp_val)))
+                    else "N/A"
+                )
+            except (ValueError, TypeError):
+                delta_bpp_str = "N/A"
+
+            aux_val = r.get("aux_loss")
+            try:
+                aux_str = f"{float(aux_val):.4f}" if (aux_val is not None and not np.isnan(float(aux_val))) else "N/A"
+            except (ValueError, TypeError):
+                aux_str = "N/A"
+
+            row = (
+                f"| {model:<13} | {lmbda_str:<6} | {bpp_str:<6} | {z_bpp_str:<6} | {delta_bpp_str:<11} | "
+                f"{mse_str:<8} | {psnr_str:<9} | {msssim_str:<7} | {aux_str:<8} |"
+            )
+        else:
+            row = f"| {model:<13} | {lmbda_str:<6} | {bpp_str:<6} | {mse_str:<8} | {psnr_str:<9} | {msssim_str:<7} |"
         lines.append(row)
 
     return "\n".join(lines)
@@ -288,9 +368,19 @@ def generate_csv_data(results: dict[str, Any] | list[dict[str, Any]]) -> str:
     runs = _extract_runs(results)
     sorted_runs = _sort_runs(runs)
 
+    has_extended = any(
+        (r.get("z_bpp") is not None or r.get("delta_bpp_z") is not None or r.get("aux_loss") is not None)
+        for r in sorted_runs
+    )
+
     output = io.StringIO()
     writer = csv.writer(output, lineterminator="\n")
-    writer.writerow(["model", "lambda", "bpp", "mse", "psnr", "ms_ssim", "loss"])
+    if has_extended:
+        writer.writerow(
+            ["model", "lambda", "bpp", "z_bpp", "delta_bpp_z", "mse", "psnr", "ms_ssim", "aux_loss", "loss"]
+        )
+    else:
+        writer.writerow(["model", "lambda", "bpp", "mse", "psnr", "ms_ssim", "loss"])
 
     for r in sorted_runs:
         model = str(r.get("model", ""))
@@ -300,7 +390,14 @@ def generate_csv_data(results: dict[str, Any] | list[dict[str, Any]]) -> str:
         psnr = r.get("psnr", "")
         msssim = r.get("msssim") if r.get("msssim") is not None else r.get("ms_ssim", "")
         loss = r.get("loss", "")
-        writer.writerow([model, lmbda, bpp, mse, psnr, msssim, loss])
+
+        if has_extended:
+            z_bpp = r.get("z_bpp", "")
+            delta_bpp_z = r.get("delta_bpp_z", "")
+            aux_loss = r.get("aux_loss", "")
+            writer.writerow([model, lmbda, bpp, z_bpp, delta_bpp_z, mse, psnr, msssim, aux_loss, loss])
+        else:
+            writer.writerow([model, lmbda, bpp, mse, psnr, msssim, loss])
 
     return output.getvalue()
 
@@ -556,6 +653,9 @@ def run_sweep(
         run_train_cfg = TrainingConfig(
             model=model,
             lmbda=lmbda,
+            lambda_aux=sweep_cfg.lambda_aux,
+            baseline_checkpoint=sweep_cfg.baseline_checkpoint,
+            baseline_z_bpp=sweep_cfg.baseline_z_bpp,
             epochs=sweep_cfg.epochs,
             batch_size=sweep_cfg.batch_size,
             accum_steps=sweep_cfg.accum_steps,
@@ -593,19 +693,56 @@ def run_sweep(
             val_metrics = train_result.get("val_metrics", train_result)
 
             bpp = val_metrics.get("bpp") if val_metrics.get("bpp") is not None else val_metrics.get("bpp_loss")
+            z_bpp = val_metrics.get("z_bpp")
+            y_bpp = val_metrics.get("y_bpp")
+            sidecar_bpp = val_metrics.get("sidecar_bpp")
+            aux_loss = val_metrics.get("aux_loss")
             mse = val_metrics.get("mse") if val_metrics.get("mse") is not None else val_metrics.get("mse_loss")
             psnr = val_metrics.get("psnr")
             msssim = val_metrics.get("msssim") if val_metrics.get("msssim") is not None else val_metrics.get("ms_ssim")
             loss = val_metrics.get("loss")
 
+            delta_bpp_z: float | None = None
+            if z_bpp is not None:
+                if model == "A":
+                    delta_bpp_z = 0.0
+                else:
+                    baseline_a = next(
+                        (
+                            r
+                            for r in runs
+                            if r.get("model") == "A"
+                            and r.get("z_bpp") is not None
+                            and abs(float(r.get("lambda", 0.0)) - float(lmbda)) < 1e-6
+                        ),
+                        None,
+                    )
+                    if baseline_a is not None and baseline_a.get("z_bpp") is not None:
+                        from src.training.loss import compute_hyperprior_overhead
+
+                        delta_bpp_z = float(compute_hyperprior_overhead(z_bpp, baseline_a["z_bpp"]))
+                    elif sweep_cfg.baseline_z_bpp is not None:
+                        from src.training.loss import compute_hyperprior_overhead
+
+                        delta_bpp_z = float(compute_hyperprior_overhead(z_bpp, sweep_cfg.baseline_z_bpp))
+                    elif val_metrics.get("delta_bpp_z") is not None:
+                        delta_bpp_z = float(val_metrics["delta_bpp_z"])
+            elif val_metrics.get("delta_bpp_z") is not None:
+                delta_bpp_z = float(val_metrics["delta_bpp_z"])
+
             run_record: dict[str, Any] = {
                 "model": model,
                 "lambda": lmbda,
                 "bpp": float(bpp) if bpp is not None else None,
+                "z_bpp": float(z_bpp) if z_bpp is not None else None,
+                "y_bpp": float(y_bpp) if y_bpp is not None else None,
+                "sidecar_bpp": float(sidecar_bpp) if sidecar_bpp is not None else None,
+                "delta_bpp_z": float(delta_bpp_z) if delta_bpp_z is not None else None,
                 "mse": float(mse) if mse is not None else None,
                 "psnr": float(psnr) if psnr is not None else None,
                 "msssim": float(msssim) if msssim is not None else None,
                 "ms_ssim": float(msssim) if msssim is not None else None,
+                "aux_loss": float(aux_loss) if aux_loss is not None else None,
                 "loss": float(loss) if loss is not None else None,
                 "best_checkpoint_path": str(train_result.get("best_checkpoint_path") or ""),
                 "latest_checkpoint_path": str(train_result.get("latest_checkpoint_path") or ""),
@@ -627,10 +764,15 @@ def run_sweep(
                 "model": model,
                 "lambda": lmbda,
                 "bpp": None,
+                "z_bpp": None,
+                "y_bpp": None,
+                "sidecar_bpp": None,
+                "delta_bpp_z": None,
                 "mse": None,
                 "psnr": None,
                 "msssim": None,
                 "ms_ssim": None,
+                "aux_loss": None,
                 "loss": None,
                 "best_checkpoint_path": "",
                 "latest_checkpoint_path": "",
@@ -638,6 +780,25 @@ def run_sweep(
                 "error": str(exc),
             }
             runs.append(run_record)
+
+    # Second pass: compute delta_bpp_z for any runs where Model A was evaluated subsequently
+    for r in runs:
+        if r.get("delta_bpp_z") is None and r.get("z_bpp") is not None and r.get("model") != "A":
+            lmbda_val = r.get("lambda")
+            baseline_a = next(
+                (
+                    b
+                    for b in runs
+                    if b.get("model") == "A"
+                    and b.get("z_bpp") is not None
+                    and abs(float(b.get("lambda", 0.0)) - float(lmbda_val)) < 1e-6
+                ),
+                None,
+            )
+            if baseline_a is not None:
+                from src.training.loss import compute_hyperprior_overhead
+
+                r["delta_bpp_z"] = float(compute_hyperprior_overhead(r["z_bpp"], baseline_a["z_bpp"]))
 
     # 4. Collate and sort metrics
     sorted_runs = _sort_runs(runs)
@@ -685,14 +846,14 @@ def run_sweep(
 def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     """Builds and parses CLI arguments for multi-rate training sweep orchestrator."""
     parser = argparse.ArgumentParser(
-        description="Sequential multi-rate training sweep orchestrator for Model A and Model B."
+        description="Sequential multi-rate training sweep orchestrator for learned compression models."
     )
     parser.add_argument(
         "--models",
         nargs="+",
         type=str,
         default=["A", "B"],
-        help="List of model architectures to evaluate, e.g. --models A B (default: 'A' 'B').",
+        help="List of model architectures to evaluate, e.g. --models A B C D C-Transmitted (default: 'A' 'B').",
     )
     parser.add_argument(
         "--lambdas",
@@ -701,6 +862,25 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         type=float,
         default=list(DEFAULT_LAMBDAS),
         help=f"List of rate-distortion lambda values (default: {list(DEFAULT_LAMBDAS)}).",
+    )
+    parser.add_argument(
+        "--lambda-aux",
+        dest="lambda_aux",
+        type=float,
+        default=0.1,
+        help="Auxiliary saliency loss weight lambda_aux (default: 0.1).",
+    )
+    parser.add_argument(
+        "--baseline-checkpoint",
+        type=str,
+        default=None,
+        help="Path to Model A baseline checkpoint for delta_bpp_z calculation.",
+    )
+    parser.add_argument(
+        "--baseline-z-bpp",
+        type=float,
+        default=None,
+        help="Baseline hyperprior rate for delta_bpp_z calculation.",
     )
     parser.add_argument(
         "--dry-run",
