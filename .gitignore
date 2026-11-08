@@ -22,4 +22,5 @@ __pycache__/
 !/data/manifests/**
 /outputs/
 /mlruns/
+/experiments/
 .dvc/cache

@@ -53,6 +53,12 @@ from src.evaluation.causal import (
     transplant_saliency_map,
     unshuffle_spatial_blocks,
 )
+from src.evaluation.figures import (
+    plot_causal_intervention_summary,
+    plot_causal_regression_scatter,
+    plot_rd_curves_with_ci,
+    plot_spatial_bit_difference_heatmap,
+)
 from src.evaluation.metrics import (
     DatasetEvaluationResult,
     ImageEvaluationResult,
@@ -79,6 +85,11 @@ from src.evaluation.spatial_allocation import (
     evaluate_rar_across_models,
     extract_top_percentile_mask,
 )
+from src.evaluation.synthesis import (
+    HypothesisEvaluation,
+    ResearchSynthesisSummary,
+    ResearchSynthesizer,
+)
 
 __all__ = [
     "DEFAULT_6POINT_LAMBDAS",
@@ -95,6 +106,7 @@ __all__ = [
     "CausalTransplantResult",
     "DatasetEvaluationResult",
     "FactorialContrastsResult",
+    "HypothesisEvaluation",
     "ImageEvaluationResult",
     "LPIPSMetric",
     "MetricMode",
@@ -103,6 +115,8 @@ __all__ = [
     "PerceptualDistortion",
     "PerceptualEvaluator",
     "RatePointResult",
+    "ResearchSynthesisSummary",
+    "ResearchSynthesizer",
     "SaliencyRepresentationMetrics",
     "SpatialBitMap",
     "TileSwapResult",
@@ -134,6 +148,10 @@ __all__ = [
     "get_lpips_metric",
     "load_benchmark_dataset",
     "plot_benchmark_rd_curves",
+    "plot_causal_intervention_summary",
+    "plot_causal_regression_scatter",
+    "plot_rd_curves_with_ci",
+    "plot_spatial_bit_difference_heatmap",
     "resolve_checkpoint_path",
     "run_causal_block_intervention",
     "run_causal_partial_correlation",

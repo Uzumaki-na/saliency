@@ -139,6 +139,18 @@ class ModelCurveResult:
     global_bd_lpips: Optional[float] = None
     roi_bd_lpips: Optional[float] = None
 
+    @property
+    def mean_rar(self) -> float:
+        """Computes mean Relative Allocation Ratio (RAR) across all curve rate points."""
+        rars = [p.rar for p in self.points if p.rar is not None]
+        return float(np.mean(rars)) if rars else 1.0
+
+    @property
+    def mean_delta_bpp_z(self) -> float:
+        """Computes mean net hyperprior overhead Delta BPP_z across all curve rate points."""
+        dzs = [p.delta_bpp_z for p in self.points if p.delta_bpp_z is not None]
+        return float(np.mean(dzs)) if dzs else 0.0
+
     def to_dict(self) -> dict[str, Any]:
         """Convert curve result to a serializable dictionary."""
         return {
@@ -153,6 +165,8 @@ class ModelCurveResult:
             "roi_bd_msssim": self.roi_bd_msssim,
             "global_bd_lpips": self.global_bd_lpips,
             "roi_bd_lpips": self.roi_bd_lpips,
+            "mean_rar": self.mean_rar,
+            "mean_delta_bpp_z": self.mean_delta_bpp_z,
         }
 
 
@@ -563,6 +577,11 @@ def generate_synthetic_benchmark_curve(
             nss = None
             sim = None
 
+        # Empirical per-image distribution for contrast evaluation
+        rng = np.random.RandomState(int(lmb * 1e6) % 100000 + ord(m_key[0]))
+        per_img_b = np.clip(bpp * (1.0 + 0.04 * rng.randn(num_images)), 1e-4, None).tolist()
+        per_img_roi_p = (roi_psnr + 0.25 * rng.randn(num_images)).tolist()
+
         pt = RatePointResult(
             model=m_key,
             lambda_val=lmb,
@@ -587,6 +606,8 @@ def generate_synthetic_benchmark_curve(
             kl=kl,
             sim=sim,
             num_images=num_images,
+            per_image_bpp=per_img_b,
+            per_image_roi_psnr=per_img_roi_p,
             checkpoint_path=f"mock_checkpoints/{m_key}_{lmb:.4f}.pt",
         )
         points.append(pt)
