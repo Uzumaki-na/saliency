@@ -23,3 +23,130 @@ stages:
       hash: md5
       md5: 07690dc80d8fe7381736232fc87d7544
       size: 10106
+  train_sweep:
+    cmd: python scripts/train_sweep.py --dry-run --models A B C D C-Transmitted 
+      --output-dir experiments/sweep_results
+    deps:
+    - path: scripts/train.py
+      hash: md5
+      md5: 5720d7cb791229e79f1fc1d560450006
+      size: 48397
+    - path: scripts/train_sweep.py
+      hash: md5
+      md5: 91c6d4c119d7fe2165ff583685daa26a
+      size: 39583
+    - path: src/codec/model_a.py
+      hash: md5
+      md5: 0c806cfd0c535e359df3417af62745c2
+      size: 15068
+    - path: src/codec/model_b.py
+      hash: md5
+      md5: c3bf9d37f28c42550a37dde2360abb68
+      size: 14656
+    - path: src/codec/model_c.py
+      hash: md5
+      md5: e291297c0e17facfad7a9ac596dc6687
+      size: 16022
+    - path: src/codec/model_c_transmitted.py
+      hash: md5
+      md5: 28a8164373faefc25426ca7c4a976c3a
+      size: 23671
+    - path: src/codec/model_d.py
+      hash: md5
+      md5: 738b8fba6bd435da628e4a4aa6fe15fd
+      size: 3613
+    - path: src/training/loss.py
+      hash: md5
+      md5: cd7f12959cdd7e9b71dff7885b1b1705
+      size: 25762
+    - path: src/training/optimizer.py
+      hash: md5
+      md5: 3e9919e374a92d5294c0ab71b59ee234
+      size: 18358
+    - path: src/training/tracker.py
+      hash: md5
+      md5: 4fab83176bc633c85cb3870b87e94626
+      size: 43923
+  benchmark:
+    cmd: python scripts/benchmark.py --dry-run --models A B C D C-Transmitted 
+      --datasets kodak mit1003 --output-dir experiments/benchmark_results
+    deps:
+    - path: scripts/benchmark.py
+      hash: md5
+      md5: f58035f826c84385298ebfe9d3ca0241
+      size: 8026
+    - path: src/evaluation/bd_rate.py
+      hash: md5
+      md5: 7cb0aa8157622e82890dfc712fe9b18a
+      size: 39555
+    - path: src/evaluation/benchmarks.py
+      hash: md5
+      md5: ce3b366aba527e73c7cd8625762b75d1
+      size: 55874
+    - path: src/evaluation/metrics.py
+      hash: md5
+      md5: 2119489f3aa1603e84fa01e009a268d7
+      size: 41275
+    - path: src/evaluation/spatial_allocation.py
+      hash: md5
+      md5: cf325bcfe07f591985762e9e8566e6a1
+      size: 22405
+    outs:
+    - path: experiments/benchmark_results/kodak/benchmark_results.json
+      hash: md5
+      md5: e6e3dd2d03bca761bbf3bb0409c41e96
+      size: 76531
+    - path: experiments/benchmark_results/kodak/benchmark_summary.csv
+      hash: md5
+      md5: 31895d82c038520160934b765d8d8e40
+      size: 4205
+    - path: experiments/benchmark_results/kodak/benchmark_summary.md
+      hash: md5
+      md5: 64b3439da33b5594d6bc8c91f9e53deb
+      size: 4197
+    - path: experiments/benchmark_results/mit1003/benchmark_results.json
+      hash: md5
+      md5: f68d4ae5677751af8585581aaab52dc0
+      size: 76533
+    - path: experiments/benchmark_results/mit1003/benchmark_summary.csv
+      hash: md5
+      md5: f5c747db9d726cc4bf9656b4633469de
+      size: 4261
+    - path: experiments/benchmark_results/mit1003/benchmark_summary.md
+      hash: md5
+      md5: 30112c6db85be8d30b0ae23851ed388f
+      size: 4199
+  evaluate:
+    cmd: python scripts/compile_research_artifacts.py --dry-run --output-dir 
+      experiments/research_artifacts
+    deps:
+    - path: scripts/compile_research_artifacts.py
+      hash: md5
+      md5: bffa583587307f38a1bcc583cfe3f1d2
+      size: 7863
+    - path: src/evaluation/causal.py
+      hash: md5
+      md5: c61ef0e84759ceb20504b151b99aabe0
+      size: 57776
+    - path: src/evaluation/figures.py
+      hash: md5
+      md5: 46b4a53cf6d3a0fec3dd8dd371656799
+      size: 21371
+    - path: src/evaluation/synthesis.py
+      hash: md5
+      md5: 8d9a36832e727b9200a424de37442844
+      size: 29137
+    outs:
+    - path: experiments/research_artifacts/figures
+      hash: md5
+      md5: 3bec8fddc9e6c9a30079887d11158ce3.dir
+      size: 2366802
+      nfiles: 5
+    - path: experiments/research_artifacts/research_report.md
+      hash: md5
+      md5: d9e84df4e8a2e72eb4c70a4386db3a05
+      size: 6255
+    - path: experiments/research_artifacts/research_summary.json
+      hash: md5
+      md5: f43443d8bf1a277bab0acc9de4c2e6b2
+      size: 7535

@@ -7,3 +7,54 @@ stages:
       - src/data/manifests.py
       - src/data/verifier.py
       - src/data/saliency.py
+
+  train_sweep:
+    cmd: python scripts/train_sweep.py --dry-run --models A B C D C-Transmitted --output-dir experiments/sweep_results
+    deps:
+      - scripts/train_sweep.py
+      - scripts/train.py
+      - src/codec/model_a.py
+      - src/codec/model_b.py
+      - src/codec/model_c.py
+      - src/codec/model_d.py
+      - src/codec/model_c_transmitted.py
+      - src/training/loss.py
+      - src/training/optimizer.py
+      - src/training/tracker.py
+
+  benchmark:
+    cmd: python scripts/benchmark.py --dry-run --models A B C D C-Transmitted --datasets kodak mit1003 --output-dir experiments/benchmark_results
+    deps:
+      - scripts/benchmark.py
+      - src/evaluation/benchmarks.py
+      - src/evaluation/metrics.py
+      - src/evaluation/bd_rate.py
+      - src/evaluation/spatial_allocation.py
+    outs:
+      - experiments/benchmark_results/kodak/benchmark_results.json:
+          cache: false
+      - experiments/benchmark_results/kodak/benchmark_summary.csv:
+          cache: false
+      - experiments/benchmark_results/kodak/benchmark_summary.md:
+          cache: false
+      - experiments/benchmark_results/mit1003/benchmark_results.json:
+          cache: false
+      - experiments/benchmark_results/mit1003/benchmark_summary.csv:
+          cache: false
+      - experiments/benchmark_results/mit1003/benchmark_summary.md:
+          cache: false
+
+  evaluate:
+    cmd: python scripts/compile_research_artifacts.py --dry-run --output-dir experiments/research_artifacts
+    deps:
+      - scripts/compile_research_artifacts.py
+      - src/evaluation/synthesis.py
+      - src/evaluation/figures.py
+      - src/evaluation/causal.py
+    outs:
+      - experiments/research_artifacts/research_summary.json:
+          cache: false
+      - experiments/research_artifacts/research_report.md:
+          cache: false
+      - experiments/research_artifacts/figures:
+          cache: false

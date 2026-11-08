@@ -192,9 +192,68 @@ def test_dvc_lock_exists_and_matches_dependencies():
 # =====================================================================
 
 
+EXPECTED_PIPELINE_STAGES = [
+    "prepare_data",
+    "train_sweep",
+    "benchmark",
+    "evaluate",
+]
+
+
+def test_all_dvc_stages_defined_in_yaml():
+    """Verify that all core pipeline stages are defined in dvc.yaml."""
+    dvc_yaml_path = _REPO_ROOT / "dvc.yaml"
+    with open(dvc_yaml_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    stages = data.get("stages", {})
+    for stage_name in EXPECTED_PIPELINE_STAGES:
+        assert stage_name in stages, f"Stage '{stage_name}' must be defined in dvc.yaml"
+        assert "cmd" in stages[stage_name], f"Stage '{stage_name}' must define a command"
+        assert "deps" in stages[stage_name], f"Stage '{stage_name}' must declare dependencies"
+
+
+def test_all_declared_pipeline_dependencies_exist_on_disk():
+    """Verify that every dependency across all dvc.yaml stages exists on disk."""
+    dvc_yaml_path = _REPO_ROOT / "dvc.yaml"
+    with open(dvc_yaml_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    stages = data.get("stages", {})
+    for stage_name, stage_cfg in stages.items():
+        deps = stage_cfg.get("deps", [])
+        for rel_dep in deps:
+            assert "\\" not in rel_dep, f"Stage '{stage_name}': Dep '{rel_dep}' must use forward slashes"
+            assert not rel_dep.startswith("/"), f"Stage '{stage_name}': Dep '{rel_dep}' must be relative"
+            dep_path = _REPO_ROOT / rel_dep
+            assert dep_path.exists(), f"Stage '{stage_name}': Declared dep missing: {dep_path}"
+            assert dep_path.is_file(), f"Stage '{stage_name}': Declared dep is not a file: {dep_path}"
+            assert dep_path.stat().st_size > 0, f"Stage '{stage_name}': Declared dep is empty: {dep_path}"
+
+
+def test_all_stages_locked_in_dvc_lock():
+    """Verify that dvc.lock contains locked dependencies and commands for all pipeline stages."""
+    dvc_lock_path = _REPO_ROOT / "dvc.lock"
+    assert dvc_lock_path.exists(), "dvc.lock must exist"
+
+    with open(dvc_lock_path, "r", encoding="utf-8") as f:
+        lock_data = yaml.safe_load(f)
+
+    locked_stages = lock_data.get("stages", {})
+    for stage_name in EXPECTED_PIPELINE_STAGES:
+        assert stage_name in locked_stages, f"Stage '{stage_name}' must be locked in dvc.lock"
+        s_lock = locked_stages[stage_name]
+        assert "cmd" in s_lock
+        assert "deps" in s_lock
+        for dep in s_lock["deps"]:
+            dep_file = _REPO_ROOT / dep["path"]
+            assert dep_file.exists(), f"Locked dependency file {dep_file} missing"
+            assert compute_file_md5(dep_file).lower() == dep["md5"].lower()
+
+
 def test_dvc_status_is_clean():
-    """Verify dvc status reports pipeline is clean and up to date."""
-    cmd = [sys.executable, "-m", "dvc", "status", "prepare_data"]
+    """Verify dvc status reports entire pipeline is clean and up to date."""
+    cmd = [sys.executable, "-m", "dvc", "status"]
     result = subprocess.run(
         cmd,
         cwd=str(_REPO_ROOT),
